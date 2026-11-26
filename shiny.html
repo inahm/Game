@@ -46,6 +46,7 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
     <p>You are a crab in a glowing deep-sea world. Explore at your own pace, grab shiny treasure, and watch it stick to your shell.</p>
     <ul>
       <li>Free play: no timer or rounds. Treasure earns points, and the rarest finds send a beam of light into the water.</li>
+      <li>Mythic treasure is hidden, with no beam to follow. Hunt for it inside the sunken wreck, and listen for the sonar pings.</li>
       <li>Plant a claw on the seabed or a rock and push to swim. Paddle with closed claws to glide.</li>
       <li>VR: swim by pushing off or paddling your arms, or use the left stick to swim where you look. Right stick turns, A kicks up. Click the right stick for music, the left stick to turn stick swimming off.</li>
     </ul>
@@ -63,7 +64,7 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
       <button id="musicBtn" type="button">Music: on</button>
     </div>
     <div id="status" role="status">Checking for VR support…</div>
-    <p class="credit">Sea life models by Polyfork (polyfork.dev), CC BY 4.0, restyled for this game.</p>
+    <p class="credit">Sea life models by Polyfork (polyfork.dev), CC BY 4.0. Ship wreck and chest by Kenney (CC0). Restyled for this game.</p>
   </div>
 </div>
 <div id="hint" hidden>WASD scuttle. Space kicks you upward, C dives. Drag to turn. V toggles first-person claws. M toggles music. N opens the room panel. Touch treasure to grab it.</div>
@@ -76,7 +77,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at runtime (see CREDITS.md)
 { document.getElementById('status').textContent = 'Loading sea life…'; const loader = new GLTFLoader();
-  await Promise.all(['reef-crab', 'shore-crab', 'jellyfish', 'octopus', 'sea-turtle', 'reef-fish', 'brain-coral', 'coral-pinnacle', 'lettuce-coral', 'table-coral', 'finger-coral', 'open-brain-coral', 'starfish', 'manta-ray']
+  await Promise.all(['reef-crab', 'shore-crab', 'jellyfish', 'octopus', 'sea-turtle', 'reef-fish', 'brain-coral', 'coral-pinnacle', 'lettuce-coral', 'table-coral', 'finger-coral', 'open-brain-coral', 'starfish', 'manta-ray', 'ship-wreck', 'chest']
     .map(n => new Promise(res => loader.load('models/' + n + '.json', g => { MODELS[n] = g; res(); }, undefined, () => res())))); }
 (() => {
   const _rand0 = Math.random; { let a = 0x1badf00d; Math.random = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }   // the world is built from a fixed seed so every player sees the same seabed
@@ -105,6 +106,9 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
     h *= 1 - .65 * Math.exp(-((x - SPAWN.x) ** 2 + (z - SPAWN.z) ** 2) / (2 * 8 * 8));
     return h + smooth(46, 62, r) * 16;
   }
+  const WRECK = { x: -33, z: -30, yaw: .7, roll: .26, pitch: -.08 }, WRECK_E = new THREE.Euler(WRECK.pitch, WRECK.yaw, WRECK.roll, 'YXZ');
+  const WRECK_P = V3(WRECK.x, [-12, -6, 0, 6, 12].reduce((a, k) => a + height(WRECK.x + Math.sin(WRECK.yaw) * k, WRECK.z + Math.cos(WRECK.yaw) * k), 0) / 5 - .6, WRECK.z);
+  const wreckPt = (x, y, z) => V3(x, y, z).applyEuler(WRECK_E).add(WRECK_P);   // hull-local point -> world
   const srgb = new THREE.Color();
   const setCol = (arr, i, r, g, b) => { srgb.setRGB(r, g, b, THREE.SRGBColorSpace); arr[i * 3] = srgb.r; arr[i * 3 + 1] = srgb.g; arr[i * 3 + 2] = srgb.b; };
   function mergeGeos(list) {
@@ -354,6 +358,45 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
       im.frustumCulled = false; scene.add(im); });
   }
 
+  // ================= the sunken wreck: a broken hull you can swim into, with mythic treasure hidden inside =================
+  const wreckG = new THREE.Group(); wreckG.position.copy(WRECK_P); wreckG.rotation.copy(WRECK_E); scene.add(wreckG);
+  const hullMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .9, side: THREE.DoubleSide, flatShading: true, envMapIntensity: .1 }); patchGlowVC(hullMat, .6);
+  {
+    const HL = 14, HW = 4.6, HH = 3.8, rng = Math.random, P2 = Math.PI / 2;
+    const widthAt = s => HW * Math.sqrt(Math.max(.02, 1 - s * s)) * (s > 0 ? 1 - .3 * s : 1), heightAt = s => HH + 1.4 * Math.max(0, Math.abs(s) - .55);
+    const hp = (s, phi, side) => V3(side * widthAt(s) * Math.sin(phi), heightAt(s) * (1 - Math.cos(phi)), s * HL);
+    const paint = (g, fn) => { const p = g.attributes.position, c = new Float32Array(p.count * 3); for (let i = 0; i < p.count; i++) c.set(fn(p.getX(i), p.getY(i), p.getZ(i)), i * 3); g.setAttribute('color', new THREE.BufferAttribute(c, 3)); return g; };
+    const woodCol = (x, y, z) => { const n = fbm3(x * .7, y * .7, z * .7), al = smooth(.6, .78, fbm3(x * .3 + 9, y * .3, z * .3)), w = [.2 + .14 * n, .12 + .09 * n, .07 + .05 * n], a = [.1, .85, .6]; return [w[0] + (a[0] - w[0]) * al, w[1] + (a[1] - w[1]) * al, w[2] + (a[2] - w[2]) * al]; };   // weathered wood with glowing algae
+    const parts = [], box = (w, h, d, x, y, z) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); parts.push(paint(g, woodCol)); };
+    for (let i = 0; i <= 12; i++) { const s = -.9 + i * .15, tp = rng() < .35 ? .3 + rng() * .5 : 1, ts = rng() < .3 ? .3 + rng() * .5 : 1, pts = [];   // ribs, some snapped off
+      for (let k = 8; k >= 0; k--) pts.push(hp(s, k / 8 * P2 * tp, -1)); for (let k = 1; k <= 8; k++) pts.push(hp(s, k / 8 * P2 * ts, 1));
+      parts.push(paint(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 30, .14, 6, false), woodCol)); }
+    const qp = [], quad = (a, b, c, d) => qp.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, b.x, b.y, b.z, d.x, d.y, d.z, c.x, c.y, c.z);
+    for (const side of [-1, 1]) for (let k = 0; k < 9; k++) { const p0 = k / 9 * P2, p1 = (k + 1) / 9 * P2 * .995;   // planking, thinning out toward the top, with a big breach amidships
+      for (let j = 0; j < 12; j++) { const s0 = -.92 + j * .153, s1 = s0 + .147; if ((k >= 3 && side === 1 && s0 > -.2 && s0 < .3) || rng() < .06 + .5 * k / 9) continue; quad(hp(s0, p0, side), hp(s1, p0, side), hp(s0, p1, side), hp(s1, p1, side)); } }
+    { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(qp, 3)); g.computeVertexNormals(); parts.push(paint(g, woodCol)); }
+    box(.5, .5, 26, 0, .15, 0);
+    for (let j = 0; j < 23; j++) { const s = -.88 + j * .0805; if ((s > -.32 && s < .2) || rng() < .4) continue; box(widthAt(s) * 1.84, .14, .55, 0, heightAt(s), s * HL); }   // deck boards with an open hatch
+    for (let j = 0; j < 17; j++) { const s = -.8 + j * .1; if (rng() < .35) continue; box(widthAt(s), .14, .95, 0, 1.1, s * HL); }   // hold floor
+    { const cy = heightAt(-.7), cz = -HL * .7;   // the captain's cabin
+      box(3.2, 3, .22, -2.6, cy + 1.5, -HL * .92); box(3.2, 3, .22, 2.6, cy + 1.5, -HL * .92); box(.22, 3, 6.6, -2.9, cy + 1.5, cz); box(.22, 3, 2.2, 2.9, cy + 1.5, -HL * .9 + 1.0); box(.22, 3, 1.6, 2.9, cy + 1.5, -HL * .5 - .9);
+      for (let j = 0; j < 5; j++) if (rng() > .35) box(6.2, .16, .4, 0, cy + 3.1, -HL * .92 + j * 1.7); box(5.6, .14, 6.8, 0, cy, cz); }
+    { const my = heightAt(.1), g = new THREE.CylinderGeometry(.28, .4, 8.5, 8), ring = new THREE.TorusGeometry(.95, .09, 6, 18), top = new THREE.CylinderGeometry(.15, .2, 6, 7);   // broken mast with a crow's nest, upper mast fallen across the deck
+      g.translate(0, my + 4.1, 1.4); ring.rotateX(P2); ring.translate(0, my + 7.7, 1.4); top.rotateZ(P2 - .12); top.rotateY(.5); top.translate(1.8, my + 1.0, 5.0); parts.push(paint(g, woodCol), paint(ring, woodCol), paint(top, woodCol));
+      const c = document.createElement('canvas'); c.width = c.height = 128; const cg = c.getContext('2d'); cg.fillStyle = '#fff'; cg.fillRect(0, 0, 128, 128); cg.fillStyle = '#000';
+      for (let i = 0; i < 26; i++) { cg.beginPath(); cg.ellipse(rng() * 128, rng() * 128 * (.4 + rng() * .8), 4 + rng() * 14, 3 + rng() * 10, rng() * 3, 0, 7); cg.fill(); } for (let x = 0; x < 128; x += 8) cg.fillRect(x, 100 + rng() * 28, 6, 30);
+      const sg = new THREE.PlaneGeometry(5.5, 6, 10, 10), sp = sg.attributes.position; for (let i = 0; i < sp.count; i++) sp.setZ(i, Math.sin(sp.getX(i) * 1.5 + sp.getY(i)) * .5); sg.computeVertexNormals();
+      const sail = new THREE.Mesh(sg, new THREE.MeshStandardMaterial({ color: 0xb8aa90, side: THREE.DoubleSide, alphaMap: new THREE.CanvasTexture(c), alphaTest: .5, alphaToCoverage: true, roughness: 1, emissive: 0x0a1020 })); sail.position.set(0, my + 4.4, 1.9); sail.rotation.z = .06; wreckG.add(sail); }
+    wreckG.add(Object.assign(new THREE.Mesh(mergeGeos(parts), hullMat), { frustumCulled: false }));
+    [[0, 2.2, 5.5], [-.4, 5.2, -9.6], [1.2, 2.0, -1.5]].forEach(([x, y, z]) => {   // a few lanterns still burning inside
+      const sprt = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffb455, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: .8 })); sprt.scale.setScalar(2.4); sprt.position.set(x, y, z); wreckG.add(sprt);
+      const bulb = new THREE.Mesh(new THREE.SphereGeometry(.12, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffe0a0 })); bulb.position.set(x, y, z); wreckG.add(bulb); });
+    if (MODELS.chest) { const cg = fitGeo(bakeModel(MODELS.chest.scene), 1.5), cm = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .8, flatShading: true, envMapIntensity: .2 }); patchGlowVC(cm, .5);
+      [[-1.5, 1.0, -2.0, .4], [1.8, 1.0, 3.5, -.6], [.2, 1.0, 7.5, .1]].forEach(([x, y, z, ry]) => { const m = new THREE.Mesh(cg, cm); m.position.set(x, y, z); m.rotation.set(0, ry, .12); wreckG.add(m); }); }
+  }
+  if (MODELS['ship-wreck']) { const g0 = fitGeo(bakeModel(MODELS['ship-wreck'].scene), 15), pa = g0.attributes.color; for (let i = 0; i < pa.array.length; i++) pa.array[i] *= .55;   // a second, smaller wreck
+    const m = new THREE.Mesh(g0, hullMat), x = 31, z = -37; m.position.set(x, height(x, z) - 2.4, z); m.rotation.set(.1, 2.2, .38); scene.add(m); }
+
   // ---- ground clutter and baked contact shadows (2 draw calls)
   {
     const pg = organic(new THREE.IcosahedronGeometry(1, 1), .5, 1.6), pm = new THREE.MeshStandardMaterial({ roughness: .75, envMapIntensity: .06 });
@@ -504,29 +547,45 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
     { name: 'diamond', val: 25, w: .005, fix: new THREE.Quaternion(), geo: (() => { const g = new THREE.IcosahedronGeometry(.3, 1); g.scale(1, 1.25, 1); return g; })(), hover: .7, shellS: .5, mat: new THREE.MeshPhysicalMaterial({ color: 0xeaf6ff, roughness: 0, metalness: 0, flatShading: true, iridescence: 1, iridescenceIOR: 2.4, emissive: 0x6aa8ff, emissiveIntensity: .55, envMapIntensity: 3.5 }) },
     { name: 'crown', val: 50, w: .002, fix: new THREE.Quaternion(), geo: crownGeo, hover: .8, shellS: .45, mat: new THREE.MeshStandardMaterial({ color: 0xffd24a, metalness: 1, roughness: .12, emissive: 0xcc8800, emissiveIntensity: 1.1, envMapIntensity: 2.4, side: THREE.DoubleSide }) });
   ['Gold Coin', 'Pearl', 'Ruby', 'Emerald', 'Sapphire', 'Amethyst', 'Golden Starfish', 'Golden Hook', 'Black Pearl', 'Prism Diamond', 'Sunken Crown'].forEach((l, i) => { TYPES[i].label = l; });
-  const TIERS = [0, 25, 70, 140, 240, 380, 600, 900, 1400], TIER_NAMES = ['Plain', 'Polished', 'Gleaming', 'Dazzling', 'Radiant', 'Blazing', 'Mythic', 'Absurd', 'Outrageous']; const tierOf = sc => { let t = 0; while (t + 1 < TIERS.length && sc >= TIERS[t + 1]) t++; return t; };
+  {
+    const compassGeo = (() => { const body = new THREE.CylinderGeometry(.3, .3, .07, 28), ring = new THREE.TorusGeometry(.3, .035, 8, 28), n1 = new THREE.ConeGeometry(.05, .3, 4), n2 = new THREE.ConeGeometry(.05, .3, 4); ring.rotateX(Math.PI / 2); n1.rotateX(Math.PI / 2); n1.translate(0, .06, .15); n2.rotateX(-Math.PI / 2); n2.translate(0, .06, -.15); return mergeGeos([body, ring, n1, n2]); })();
+    const chaliceGeo = (() => { const g = new THREE.LatheGeometry([[.001, 0], [.13, 0], [.11, .03], [.04, .1], [.04, .2], [.12, .28], [.19, .46], [.17, .5], [.001, .5]].map(([x, y]) => new THREE.Vector2(x, y)), 22); g.translate(0, -.25, 0); return g; })();
+    const heartGeo = organic(new THREE.IcosahedronGeometry(.3, 2), .07, 3);
+    const tridentGeo = (() => { const st = new THREE.CylinderGeometry(.025, .03, .9, 8), c0 = new THREE.ConeGeometry(.045, .24, 6), c1 = new THREE.ConeGeometry(.04, .2, 6), c2 = new THREE.ConeGeometry(.04, .2, 6), bar = new THREE.BoxGeometry(.28, .035, .035);
+      c0.translate(0, .57, 0); c1.rotateZ(-.25); c1.translate(.11, .52, 0); c2.rotateZ(.25); c2.translate(-.11, .52, 0); bar.translate(0, .44, 0); return mergeGeos([st, c0, c1, c2, bar]); })();
+    TYPES.push(
+      { name: 'compass', val: 100, w: 0, fix: new THREE.Quaternion(), geo: compassGeo, hover: .8, shellS: .55, mat: new THREE.MeshStandardMaterial({ color: 0xffc440, metalness: 1, roughness: .15, emissive: 0x995500, emissiveIntensity: .9, envMapIntensity: 2.4 }) },
+      { name: 'chalice', val: 150, w: 0, fix: new THREE.Quaternion(), geo: chaliceGeo, hover: .8, shellS: .55, mat: new THREE.MeshStandardMaterial({ color: 0xf4e6a0, metalness: 1, roughness: .1, emissive: 0x806010, emissiveIntensity: 1, envMapIntensity: 2.8 }) },
+      { name: 'heart', val: 250, w: 0, fix: new THREE.Quaternion(), geo: heartGeo, hover: .8, shellS: .6, mat: new THREE.MeshPhysicalMaterial({ color: 0x7a0830, roughness: .12, metalness: .1, clearcoat: 1, emissive: 0xff2a6a, emissiveIntensity: 1.6, envMapIntensity: 2 }) },
+      { name: 'trident', val: 300, w: 0, fix: new THREE.Quaternion(), geo: tridentGeo, hover: .9, shellS: .55, mat: new THREE.MeshStandardMaterial({ color: 0x9ff0ff, metalness: 1, roughness: .12, emissive: 0x1a9aff, emissiveIntensity: 1.2, envMapIntensity: 2.6 }) });
+    ["Captain's Compass", 'Pearl Chalice', 'Abyssal Heart', 'Trident of the Deep'].forEach((l, i) => { TYPES[11 + i].label = l; });
+  }
+  const TIERS = [0, 25, 70, 140, 240, 380, 600, 900, 1400, 2200, 3600], TIER_NAMES = ['Plain', 'Polished', 'Gleaming', 'Dazzling', 'Radiant', 'Blazing', 'Fabled', 'Absurd', 'Outrageous', 'Celestial', 'Impossible']; const tierOf = sc => { let t = 0; while (t + 1 < TIERS.length && sc >= TIERS[t + 1]) t++; return t; };
   const wsum = TYPES.reduce((a, t) => a + t.w, 0);
   const pickType = () => { let r = Math.random() * wsum; for (let i = 0; i < TYPES.length; i++) { r -= TYPES[i].w; if (r <= 0) return i; } return 0; };
 
   // ---------- items in the world (instanced per type) ----------
-  const items = [], NITEMS = 170, tmpObj = new THREE.Object3D();
+  const items = [], NITEMS = 190, tmpObj = new THREE.Object3D();
   const worldIM = TYPES.map(t => { const im = new THREE.InstancedMesh(t.geo, t.mat, NITEMS); im.count = 0; im.frustumCulled = false; scene.add(im); return im; });
   const glintPos = new Float32Array(NITEMS * 3), glintCol = new Float32Array(NITEMS * 3), glintGeo = new THREE.BufferGeometry();
   glintGeo.setAttribute('position', new THREE.BufferAttribute(glintPos, 3)); glintGeo.setAttribute('color', new THREE.BufferAttribute(glintCol, 3));
   { const gp = new THREE.Points(glintGeo, new THREE.PointsMaterial({ map: glowTex, size: 1.6, vertexColors: true, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })); gp.frustumCulled = false; scene.add(gp); }
   const hrand = (a, b) => { const n = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return n - Math.floor(n); };   // deterministic, so every player agrees where treasure respawns
-  const respawnDelay = it => { const v = TYPES[it.type].val, h = hrand(it.idx, it.rc + 7); return v >= 25 ? 70 + h * 60 : 7 + h * 7; };
+  const respawnDelay = it => { const v = TYPES[it.type].val, h = hrand(it.idx, it.rc + 7); return v >= 100 ? 480 + h * 240 : v >= 25 ? 70 + h * 60 : 7 + h * 7; };
   function placeItem(it, nearHoard) {
+    if (it.fixed) { it.pos.set(it.fixed[0], it.fixed[1], it.fixed[2]); return; }
     for (let k = 0; k < 40; k++) {
       const R = j => hrand(it.idx * 53 + k * 7 + j, it.rc * 13 + 3), a = R(1) * 6.283, r = nearHoard ? Math.pow(R(2), .7) * 7 : 4 + R(3) * 42;
       const x = nearHoard ? HOARD.x + Math.cos(a) * r : Math.cos(a) * r * (R(4) < .5 ? 1 : -1), z = nearHoard ? HOARD.z + Math.sin(a) * r : Math.sin(a) * r;
       if (Math.hypot(x, z) > 50 || rocks.some(q => Math.hypot(x - q.x, z - q.z) < q.r + .5)) continue; it.pos.set(x, height(x, z) + (it.lift || 0), z); return; }
     it.pos.set(hrand(it.idx, 5) * 10 - 5, height(0, 0), hrand(it.idx, 6) * 10 - 5);
   }
-  for (let i = 0; i < NITEMS; i++) { const near = i < 8 ? (i >= 2 && i < 5) : i < 60, ty = i < 2 ? 10 : i < 5 ? 9 : i < 8 ? 8 : near ? (Math.random() < .55 ? 2 + Math.floor(Math.random() * 4) : pickType()) : pickType(), it = { type: ty, pos: V3(0, 0, 0), ph: Math.random() * 6.28, alive: true, back: 0, idx: i, rc: 0, lift: i < 2 ? rnd(9, 14) : (i >= 60 && i < 105) ? rnd(2.5, 14) : 0, slot: worldIM[ty].count++ }; placeItem(it, near); items.push(it); }
-  const glintTint = [[1, .8, .3], [1, .7, .95], [1, .3, .5], [.3, 1, .6], [.3, .5, 1], [.8, .4, 1], [1, .7, .35], [1, .85, .4], [1.6, .5, 2.2], [1.4, 1.8, 2.2], [2.4, 1.9, .7]];
+  for (let i = 0; i < 170; i++) { const near = i < 8 ? (i >= 2 && i < 5) : i < 60, ty = i < 2 ? 10 : i < 5 ? 9 : i < 8 ? 8 : near ? (Math.random() < .55 ? 2 + Math.floor(Math.random() * 4) : pickType()) : pickType(), it = { type: ty, pos: V3(0, 0, 0), ph: Math.random() * 6.28, alive: true, back: 0, idx: i, rc: 0, lift: i < 2 ? rnd(9, 14) : (i >= 60 && i < 105) ? rnd(2.5, 14) : 0, slot: worldIM[ty].count++ }; placeItem(it, near); items.push(it); }
+  [[11, [-1.2, 1.6, 6.0]], [12, [.3, 4.4, -9.8]], [13, [.8, .5, 2.5]], [14, [0, 11.0, 1.4]], [8, [-1.5, 2.9, -2.0]], [10, [1.8, 2.9, 3.5]], [9, [.2, 2.9, 7.5]]].forEach(([ty, lp]) => {   // hidden in the sunken wreck
+    const it = { type: ty, pos: V3(0, 0, 0), ph: Math.random() * 6.28, alive: true, back: 0, idx: items.length, rc: 0, lift: 0, fixed: wreckPt(lp[0], lp[1], lp[2]).toArray(), slot: worldIM[ty].count++ }; placeItem(it, false); items.push(it); });
+  const glintTint = [[1, .8, .3], [1, .7, .95], [1, .3, .5], [.3, 1, .6], [.3, .5, 1], [.8, .4, 1], [1, .7, .35], [1, .85, .4], [1.6, .5, 2.2], [1.4, 1.8, 2.2], [2.4, 1.9, .7], [.9, .7, .3], [1, 1, .8], [1.6, .2, .5], [.4, 1, 1.5]];
   const beamTint = { 8: [.7, .3, 1], 9: [.6, .9, 1], 10: [1, .8, .3] };
-  const beams = items.filter(it => TYPES[it.type].val >= 25).map(it => { const c = beamTint[it.type];
+  const beams = items.filter(it => TYPES[it.type].val >= 25 && TYPES[it.type].val < 100).map(it => { const c = beamTint[it.type];
     const m = new THREE.Mesh(new THREE.CylinderGeometry(.25, 1.1, 40, 14, 1, true), new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false, uniforms: { uC: { value: new THREE.Color(c[0], c[1], c[2]) } },
       vertexShader: 'varying vec2 vUv; varying float vE; void main(){ vUv = uv; vec4 mv = modelViewMatrix*vec4(position,1.); vE = abs(dot(normalize(normalMatrix*normal), normalize(-mv.xyz))); gl_Position = projectionMatrix*mv; }',
       fragmentShader: 'varying vec2 vUv; varying float vE; uniform vec3 uC; void main(){ float a = (1.-vUv.y) * pow(vE, 1.5) * .38; gl_FragColor = vec4(uC*a*2., a); }' })); m.frustumCulled = false; scene.add(m); return { m, it }; });
@@ -685,13 +744,13 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   let flashMsg = '', flashT = 0;
   function drawHud() {
     if (player.score !== lastHudScore) { lastHudScore = player.score; hudPop.v += 2.6; }
-    const tier = tierOf(player.score), next = TIERS[tier + 1], prog = next ? (player.score - TIERS[tier]) / (next - TIERS[tier]) : 1, depth = Math.max(0, Math.round(34 - player.pos.y)), key = tier + '|' + player.score + '|' + depth + '|' + flashMsg + '|' + roomLine();
+    const tier = tierOf(player.score), next = TIERS[tier + 1], prog = next ? (player.score - TIERS[tier]) / (next - TIERS[tier]) : 1, depth = Math.max(0, Math.round(34 - player.pos.y)), key = tier + '|' + player.score + '|' + depth + '|' + flashMsg + '|' + huntMsg + '|' + roomLine();
     if (hud.key === key) return; hud.key = key;
     const g = hud.g, rr = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
     g.clearRect(0, 0, 620, 100); rr(10, 6, 600, 64, 32); g.fillStyle = 'rgba(6,10,40,.66)'; g.fill(); g.strokeStyle = 'rgba(130,225,255,.5)'; g.lineWidth = 2; g.stroke();
     rr(34, 58, 552, 6, 3); g.fillStyle = 'rgba(255,255,255,.14)'; g.fill(); rr(34, 58, Math.max(6, 552 * prog), 6, 3); const gr = g.createLinearGradient(34, 0, 586, 0); gr.addColorStop(0, '#29e8ff'); gr.addColorStop(1, '#ffcb3d'); g.fillStyle = gr; g.fill();
     fillText(g, TIER_NAMES[tier] + ' shell', 125, 36, 26, tier >= 6 ? '#ffe08a' : '#ffffff', tier >= 6 ? '#ffcb3d' : null); fillText(g, player.score + ' pts', 320, 36, 32, '#ffe08a', '#ffcb3d'); fillText(g, depth + ' m deep', 515, 36, 30, '#9fe8ff');
-    if (flashMsg || roomLine()) fillText(g, flashMsg || roomLine(), 310, 92, 26, flashMsg ? '#ffe08a' : '#9fe8ff', flashMsg ? '#ffcb3d' : null); hud.tex.needsUpdate = true; }
+    if (flashMsg || huntMsg || roomLine()) fillText(g, flashMsg || huntMsg || roomLine(), 310, 92, 26, flashMsg ? '#ffe08a' : huntMsg ? '#ff9ad8' : '#9fe8ff', flashMsg ? '#ffcb3d' : huntMsg ? '#ff3fb4' : null); hud.tex.needsUpdate = true; }
   function drawBig(t) { const key = 'big' + t; if (msg.key === key) return; msg.key = key; const g = msg.g; g.clearRect(0, 0, 800, 560); fillText(g, t, 400, 330, 300, '#ffffff', '#29e8ff'); msg.tex.needsUpdate = true; }
   function drawMsg(title, lines, foot) { const key = title + lines.join('|') + foot; if (msg.key === key) return; msg.key = key; const g = msg.g; g.clearRect(0, 0, 800, 560);
     g.fillStyle = 'rgba(8,8,46,.82)'; g.beginPath(); g.roundRect ? g.roundRect(10, 10, 780, 540, 28) : g.rect(10, 10, 780, 540); g.fill(); g.strokeStyle = 'rgba(255,63,180,.7)'; g.lineWidth = 4; g.stroke();
@@ -765,9 +824,9 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
     burst(from, ty.mat.color.getHex() || 0xffffff, crab.isPlayer ? 26 : 14); const p = crab.shell.place(it.type);
     { const fm = new THREE.Mesh(ty.geo, ty.mat); fm.position.copy(from); flying.push({ mesh: fm, from, crab, p, t: 0 }); } scene.add(flying[flying.length - 1].mesh);
     crab.score += ty.val; crab.count++;
-    const rar = ty.val >= 50 ? 'LEGENDARY' : ty.val >= 25 ? 'EPIC' : ty.val >= 10 ? 'RARE' : '';
+    const rar = ty.val >= 100 ? 'MYTHIC' : ty.val >= 50 ? 'LEGENDARY' : ty.val >= 25 ? 'EPIC' : ty.val >= 10 ? 'RARE' : '';
     if (crab.isPlayer) { spawnPopup(from.clone().add(V3(0, .45, 0)), ty.val); sfx.grab(ty.val); haptic(ty.val >= 25 ? 1 : .7, ty.val >= 25 ? 220 : 70); crab.snap = .35;
-      if (rar) { flashMsg = rar + '! ' + ty.label + ' +' + ty.val; flashT = 4.5; sfx.win(); burst(from, 0xffffff, ty.val >= 25 ? 70 : 40); }
+      if (rar) { flashMsg = rar + '! ' + ty.label + ' +' + ty.val; flashT = ty.val >= 100 ? 7 : 4.5; sfx.win(); if (ty.val >= 100) setTimeout(() => sfx.win(), 500); burst(from, 0xffffff, ty.val >= 100 ? 150 : ty.val >= 25 ? 70 : 40); }
       const tr = tierOf(crab.score); if (tr > (crab.tier || 0)) { crab.tier = tr; if (!rar || tr >= 5) { flashMsg = 'Your shell is ' + (tr >= 6 ? '' : 'now ') + TIER_NAMES[tr].toUpperCase() + (tr >= 7 ? '!!' : '!'); flashT = 4; sfx.win(); if (tr >= 5) burst(player.pos.clone().add(V3(0, 1, 0)), 0xffffff, 90); } } }
     else if (ty.val >= 25) { flashMsg = crab.name + ' found the ' + ty.label + '!'; flashT = 4; }
   }
@@ -825,7 +884,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
     if (inVR) ctrl.forEach(c => { if (c.claw) { c.obj.updateMatrixWorld(true); tips.push(c.obj.localToWorld(V3(0, 0, -.3))); } });
     else player.claws.forEach(c => { if (c.tip) { tips.push(c.tip(V3(0, 0, 0))); return; } c.group.updateWorldMatrix(true, false); tips.push(c.group.localToWorld(V3(0, 0, -.55))); }); return tips; }
   function npcThink(c, dt) {
-    c.tt -= dt; if (c.tt <= 0 || !c.target || !c.target.alive) { c.tt = rnd(.8, 1.6); let best = null, bd = 1e9; for (const it of items) { if (!it.alive || it.lift) continue; const d = Math.hypot(it.pos.x - c.pos.x, it.pos.z - c.pos.z) * (1 + Math.random() * .35) / (TYPES[it.type].val > 3 ? 1.5 : 1); if (d < bd) { bd = d; best = it; } } c.target = best; }
+    c.tt -= dt; if (c.tt <= 0 || !c.target || !c.target.alive) { c.tt = rnd(.8, 1.6); let best = null, bd = 1e9; for (const it of items) { if (!it.alive || it.lift || it.fixed) continue; const d = Math.hypot(it.pos.x - c.pos.x, it.pos.z - c.pos.z) * (1 + Math.random() * .35) / (TYPES[it.type].val > 3 ? 1.5 : 1); if (d < bd) { bd = d; best = it; } } c.target = best; }
     const t = c.target ? c.target.pos : c.wander; if (!c.target && Math.hypot(t.x - c.pos.x, t.z - c.pos.z) < 2) c.wander.set(rnd(-35, 35), 0, rnd(-35, 35));
     const dx = t.x - c.pos.x, dz = t.z - c.pos.z, d = Math.hypot(dx, dz) || 1, sp = state === 'play' ? 1.25 : .6;
     c.spv = (c.spv || 0) + ((d > .4 ? sp : 0) - (c.spv || 0)) * (1 - Math.exp(-dt * 4));
@@ -842,7 +901,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
       if (a && a !== c.curAct) { a.reset().setEffectiveWeight(1).fadeIn(.25).play(); if (c.curAct) c.curAct.fadeOut(.25); c.curAct = a; }
       if (a) a.timeScale = want === 'idle' ? 1 : Math.min(2.2, Math.max(.6, speed / 1.1)); c.mixer.update(dt); c.claws.forEach(cl => cl.apply && cl.apply()); } }
 
-  const ZONES = [{ n: 'Treasure Hoard', x: HOARD.x, z: HOARD.z, r: 10 }, { n: 'Jellyfish Garden', x: 2, z: 12, r: 11 }, { n: 'Kelp Forest', x: -26, z: -12, r: 14 }, { n: 'Coral Gardens', x: 26, z: -22, r: 13 }, { n: 'Pebble Flats', x: 28, z: 14, r: 12 }, { n: 'The Surface', y: 24 }];
+  const ZONES = [{ n: 'Treasure Hoard', x: HOARD.x, z: HOARD.z, r: 10 }, { n: 'Jellyfish Garden', x: 2, z: 12, r: 11 }, { n: 'Kelp Forest', x: -26, z: -12, r: 14 }, { n: 'Coral Gardens', x: 26, z: -22, r: 13 }, { n: 'Pebble Flats', x: 28, z: 14, r: 12 }, { n: 'Sunken Wreck', x: WRECK.x, z: WRECK.z, r: 15 }, { n: 'The Surface', y: 24 }];
   let found = new Set(); try { found = new Set(JSON.parse(localStorage.getItem('shiny-found') || '[]')); } catch (_) {}
   function checkZones() { for (const z of ZONES) { if (found.has(z.n)) continue; const hit = z.y ? player.pos.y > z.y : Math.hypot(player.pos.x - z.x, player.pos.z - z.z) < z.r;
     if (hit) { found.add(z.n); try { localStorage.setItem('shiny-found', JSON.stringify([...found])); } catch (_) {} flashMsg = 'Discovered: ' + z.n + '  (' + found.size + '/' + ZONES.length + ')'; flashT = 3.5; sfx.win(); } } }
@@ -979,6 +1038,11 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
         if (Math.abs(l.z) < .05) { const px = (l.x / KBW + .5) * KB_W, py = (.5 - l.y / KBH) * KB_H; hit = kbKeys.findIndex(k => px >= k.x && px <= k.x + k.w && py >= k.y && py <= k.y + k.h); } }
       if (hit !== term.prev[i]) { term.prev[i] = hit; if (hit >= 0) pressKey(kbKeys[hit], hit); } }
   }
+  let huntMsg = '', huntT = 0;
+  function huntPing(dt) {   // sonar: the closer a mythic treasure, the faster the pings
+    let best = 1e9; for (const it of items) if (it.alive && TYPES[it.type].val >= 100) { const d = it.pos.distanceTo(player.pos); if (d < best) best = d; }
+    const m = best < 5 ? 'Very close!' : best < 13 ? 'Something rare is near…' : ''; if (m !== huntMsg) { huntMsg = m; hud.key = ''; }
+    if (best < 13) { huntT -= dt; if (huntT <= 0) { huntT = .18 + best * .07; tone(midi(100), .07, 'sine', .05); } } }
   // ================= main loop =================
   const clock = new THREE.Clock(); let t = 0, lastLights = 0;
   function frame() {
@@ -993,7 +1057,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
       const tips = playerTips(), body = player.pos;
       for (const it of items) { if (!it.alive) continue; const ty = TYPES[it.type], dy = Math.abs(it.pos.y + ty.hover - body.y);
         let hit = Math.hypot(it.pos.x - body.x, it.pos.z - body.z) < .85 && dy < 1.6; if (!hit) for (const tp of tips) if (tp.distanceTo(_b.set(it.pos.x, it.pos.y + ty.hover, it.pos.z)) < .45) { hit = true; break; } if (hit) collect(it, player); }
-      checkZones(); if (flashT > 0) { flashT -= dt; if (flashT <= 0) flashMsg = ''; } drawHud();
+      checkZones(); huntPing(dt); if (flashT > 0) { flashT -= dt; if (flashT <= 0) flashMsg = ''; } drawHud();
     } else if (state === 'count') { countT -= dt; const n = Math.ceil(countT); if (n !== lastCount) { lastCount = n; if (n > 0) tone(midi(72), .25, 'sine', .12); msgPop.x = .14; msgPop.v = 0; } if (countT <= 0) { state = 'play'; sfx.start(); flashMsg = 'GO! Grab the shiny things'; flashT = 2.5; msg.m.visible = false; hud.m.visible = true; hud.key = ''; } else drawBig(String(n));
     } else if (state === 'title') { msg.m.visible = true; drawMsg('Shiny Shell', ['Explore the deep. No timer, no rounds.', 'Push off rocks and the seabed to swim.', 'Grab treasure: it sticks to your shell.', 'Computer on your right: join a room.', inVR ? 'Paddle your arms or use the left stick.' : 'WASD scuttle · Space kick · C dive'], inVR ? 'Squeeze a trigger to begin' : 'Click or press Space to begin'); }
     updateFlying(dt); updatePopups(dt); updateItems(t); updateSparks(dt); updateSnow(t); updateBubbles(t); updateFish(t); updateWhale(t); updateSwimmers(t); mixers.forEach(m => m.update(dt)); updateBigBubbles(dt); updateGlitter(t); netTick(dt, pSpeed); termUpdate(dt, t);

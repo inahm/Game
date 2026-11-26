@@ -1,8 +1,9 @@
 # Model credits
 
-All models in this folder are by **Polyfork** (https://polyfork.dev) and are licensed under
+Most models in this folder are by **Polyfork** (https://polyfork.dev), licensed under
 **Creative Commons Attribution 4.0** (https://creativecommons.org/licenses/by/4.0/).
 They were obtained from the `pengcut-models-*` npm packages, which redistribute them unchanged.
+The ship wreck and chest are by **Kenney** (https://kenney.nl), released as CC0 (no credit required, given here anyway).
 
 **Changes made:** each file was optimised with glTF-Transform (animation resampling, pruning,
 deduplication and vertex quantisation). In the game, materials are recoloured, tinted and given
@@ -25,3 +26,5 @@ meshes and drawn instanced. Polyfork does not endorse this game.
 | `open-brain-coral.glb` | Open brain coral | https://polyfork.dev/asset/open-brain-coral-50344c |
 | `starfish.glb` | Blue linckia starfish | https://polyfork.dev/asset/blue-linckia-starfish-e07dd3 |
 | `manta-ray.glb` | Stingray (used as the manta ray) | https://polyfork.dev/asset/stingray-base |
+| `ship-wreck.glb` | Ship Wreck, by Kenney (CC0, no credit required) | https://kenney.nl |
+| `chest.glb` | Cannon Chest, by Kenney (CC0, no credit required) | https://kenney.nl |
