@@ -23,6 +23,7 @@ ul { margin: .6rem 0 0; padding-left: 1.2rem; color: var(--muted); font-size: .9
 .row { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1.2rem; }
 button { font: 600 1.05rem var(--font-display); border: 0; border-radius: 12px; padding: .8rem 1.4rem; min-height: 44px; cursor: pointer; }
 #vrBtn { background: linear-gradient(90deg, var(--magenta), var(--gold)); color: #230a2b; }
+#musicBtn { background: transparent; color: var(--muted); border: 1px solid rgba(169, 164, 216, .35); }
 #deskBtn { background: transparent; color: var(--ink); border: 1px solid rgba(41, 232, 255, .55); }
 button:disabled { opacity: .45; cursor: not-allowed; }
 button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
@@ -39,17 +40,18 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
     <ul>
       <li>Free play: no timer, no rounds, no score to beat.</li>
       <li>Plant a claw on the seabed or a rock and push to swim. Paddle with closed claws to glide.</li>
-      <li>VR: left stick scuttles, right stick turns, A kicks up. Touch treasure to grab it. Squeeze to snap.</li>
+      <li>VR: left stick scuttles, right stick turns, A kicks up. Touch treasure to grab it. Squeeze to snap. Click the right stick to toggle music.</li>
     </ul>
     <div class="row">
       <button id="vrBtn" disabled>Enter VR</button>
       <button id="deskBtn">Play on screen</button>
+      <button id="musicBtn" type="button">Music: on</button>
     </div>
     <div id="status" role="status">Checking for VR support…</div>
     <p class="credit">Sea life models by Polyfork (polyfork.dev), CC BY 4.0, restyled for this game.</p>
   </div>
 </div>
-<div id="hint" hidden>WASD scuttle. Space kicks you upward, C dives. Drag to turn. V toggles first-person claws. Touch treasure to grab it.</div>
+<div id="hint" hidden>WASD scuttle. Space kicks you upward, C dives. Drag to turn. V toggles first-person claws. M toggles music. Touch treasure to grab it.</div>
 
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.152.2/examples/jsm/"}}</script>
 <script type="module">
@@ -634,19 +636,55 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
 
   // ---------- audio ----------
   let actx = null, bus = null; const midi = n => 440 * Math.pow(2, (n - 69) / 12);
+  let musicOn = true, musicGainNode = null; try { musicOn = localStorage.getItem('shiny-music') !== 'off'; } catch (_) {}
+  function makeMusic(ac, out, verb) {   // generative underwater score: pads, sub, kalimba arpeggio, bells, whale calls
+    const musicGain = ac.createGain(); musicGain.gain.value = musicOn ? .9 : 0;
+    const comp = ac.createDynamicsCompressor(); comp.threshold.value = -20; comp.ratio.value = 3; musicGain.connect(comp).connect(out);
+    const wet = ac.createGain(); wet.gain.value = .55; musicGain.connect(wet).connect(verb);
+    const beat = 60 / 72, STEP = beat / 2, BAR = beat * 4, CH = BAR * 2, SPC = 16, mtof = n => 440 * Math.pow(2, (n - 69) / 12);
+    const dIn = ac.createGain(), dOut = ac.createGain(), dl = ac.createDelay(2), dr = ac.createDelay(2), fb = ac.createGain(), pl = ac.createStereoPanner(), pr = ac.createStereoPanner();   // ping-pong delay
+    dl.delayTime.value = dr.delayTime.value = beat * .75; fb.gain.value = .38; dOut.gain.value = .5; pl.pan.value = -.7; pr.pan.value = .7;
+    dIn.connect(dl); dl.connect(pl).connect(dOut); dl.connect(dr); dr.connect(pr).connect(dOut); dr.connect(fb).connect(dl); dOut.connect(musicGain);
+    const padF = ac.createBiquadFilter(), lfo = ac.createOscillator(), lfoG = ac.createGain(); padF.type = 'lowpass'; padF.frequency.value = 900; padF.Q.value = .7; lfo.frequency.value = .05; lfoG.gain.value = 450; lfo.connect(lfoG).connect(padF.frequency); lfo.start(); padF.connect(musicGain);
+    const prog = [{ root: 45, pad: [57, 60, 64, 67, 71] }, { root: 41, pad: [57, 60, 64, 65, 71] }, { root: 48, pad: [55, 59, 62, 64, 67] }, { root: 43, pad: [55, 59, 62, 66, 69] }];   // Am9, Fmaj7#11, Cmaj9, Gmaj9
+    function padChord(c, t) {
+      c.pad.forEach(n => [-8, 0, 8].forEach(det => { const o = ac.createOscillator(), g = ac.createGain(), lvl = det === 0 ? .03 : .011; o.type = det === 0 ? 'triangle' : 'sawtooth'; o.frequency.value = mtof(n); o.detune.value = det + (Math.random() - .5) * 4;
+        g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(lvl, t + 2.2); g.gain.setValueAtTime(lvl, t + CH - .3); g.gain.linearRampToValueAtTime(0, t + CH + 2.5); o.connect(g).connect(padF); o.start(t); o.stop(t + CH + 2.6); }));
+      const b = ac.createOscillator(), bg = ac.createGain(); b.type = 'sine'; b.frequency.value = mtof(c.root - 12);
+      bg.gain.setValueAtTime(0, t); bg.gain.linearRampToValueAtTime(.09, t + 1.5); bg.gain.setValueAtTime(.09, t + CH - .4); bg.gain.linearRampToValueAtTime(0, t + CH + 1); b.connect(bg).connect(musicGain); b.start(t); b.stop(t + CH + 1.1);
+    }
+    function pluck(n, t, vel) { const f = mtof(n), o = ac.createOscillator(), o2 = ac.createOscillator(), g = ac.createGain(), g2 = ac.createGain(), p = ac.createStereoPanner(); o.type = 'triangle'; o.frequency.value = f; o2.type = 'sine'; o2.frequency.value = f * 4.01; g2.gain.value = .25;
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.07 * vel, t + .008); g.gain.exponentialRampToValueAtTime(.0008, t + 1.6); p.pan.value = (Math.random() - .5) * .8;
+      o.connect(g); o2.connect(g2).connect(g); g.connect(p); p.connect(musicGain); p.connect(dIn); o.start(t); o2.start(t); o.stop(t + 1.7); o2.stop(t + 1.7); }
+    function bellNote(n, t) { const o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine'; o.frequency.value = mtof(n); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.05, t + .02); g.gain.exponentialRampToValueAtTime(.0005, t + 4); o.connect(g); g.connect(dIn); g.connect(wet); o.start(t); o.stop(t + 4.1); }
+    function whale(t) { const o = ac.createOscillator(), g = ac.createGain(), f = ac.createBiquadFilter(), v = ac.createOscillator(), vg = ac.createGain(); o.type = 'sine'; f.type = 'lowpass'; f.frequency.value = 900;
+      o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(140, t + 2.2); o.frequency.exponentialRampToValueAtTime(260, t + 4.2); v.frequency.value = 5; vg.gain.value = 6; v.connect(vg).connect(o.frequency);
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.05, t + .8); g.gain.linearRampToValueAtTime(0, t + 4.6); o.connect(f).connect(g); g.connect(wet); g.connect(musicGain); o.start(t); v.start(t); o.stop(t + 4.7); v.stop(t + 4.7); }
+    let next = ac.currentTime + .3, step = 0; const arp = [0, 2, 1, 3, 2, 4, 3, 1];
+    setInterval(() => {   // look-ahead scheduler on the audio clock
+      while (next < ac.currentTime + .6) {
+        const ci = Math.floor(step / SPC) % prog.length, c = prog[ci], st = step % SPC, dens = [.35, .7, .85, .5][Math.floor(step / (SPC * 4)) % 4];
+        if (st === 0) padChord(c, next);
+        if (Math.random() < dens) pluck(c.pad[arp[step % 8] % c.pad.length] + (Math.random() < .3 ? 12 : 0), next + (Math.random() - .5) * .02, .6 + Math.random() * .4);
+        if (st === 8 && Math.random() < .5) bellNote([81, 84, 86, 88, 91][Math.floor(Math.random() * 5)], next);
+        if (st === 0 && ci === 0 && Math.random() < .5) whale(next + BAR);
+        next += STEP; step++;
+      }
+    }, 120);
+    return musicGain;
+  }
+  function setMusic(on) { musicOn = on; try { localStorage.setItem('shiny-music', on ? 'on' : 'off'); } catch (_) {}
+    if (musicGainNode && actx) musicGainNode.gain.setTargetAtTime(on ? .9 : 0, actx.currentTime, .4);
+    const b = document.getElementById('musicBtn'); if (b) b.textContent = 'Music: ' + (on ? 'on' : 'off'); flashMsg = on ? 'Music on' : 'Music off'; flashT = 1.6; }
   function startAudio() { if (actx) { actx.resume && actx.resume(); return; }
     try { actx = new (window.AudioContext || window.webkitAudioContext)(); const master = actx.createGain(); master.gain.value = 0; master.connect(actx.destination); master.gain.linearRampToValueAtTime(.5, actx.currentTime + 4);
       const len = actx.sampleRate * 3, ir = actx.createBuffer(2, len, actx.sampleRate); for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.4); }
       const verb = actx.createConvolver(); verb.buffer = ir; const vg = actx.createGain(); vg.gain.value = .7; verb.connect(vg).connect(master); const dry = actx.createGain(); dry.gain.value = .5; dry.connect(master); bus = actx.createGain(); bus.connect(verb); bus.connect(dry);
       const nb = actx.createBuffer(1, actx.sampleRate * 4, actx.sampleRate), nd = nb.getChannelData(0); let lp = 0; for (let i = 0; i < nd.length; i++) { lp += (Math.random() * 2 - 1 - lp) * .02; nd[i] = lp * 3; }
       const ns = actx.createBufferSource(); ns.buffer = nb; ns.loop = true; const nf = actx.createBiquadFilter(); nf.type = 'lowpass'; nf.frequency.value = 380; const ng = actx.createGain(); ng.gain.value = .35; ns.connect(nf).connect(ng).connect(master); ns.start();
-      [41, 55, 82.4].forEach((f, i) => { const o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine'; o.frequency.value = f; g.gain.value = .05 / (i + 1); o.connect(g).connect(master); o.start(); });
+      [41, 55, 82.4].forEach((f, i) => { const o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine'; o.frequency.value = f; g.gain.value = .03 / (i + 1); o.connect(g).connect(master); o.start(); });
       const blip = () => { const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine'; const f = rnd(260, 520); o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 2, t + .12); g.gain.setValueAtTime(.05, t); g.gain.exponentialRampToValueAtTime(.0001, t + .25); o.connect(g).connect(bus); o.start(t); o.stop(t + .3); setTimeout(blip, rnd(1500, 5000)); };
-      const padChords = [[45, 52, 57, 60], [41, 48, 53, 57], [43, 50, 55, 59], [40, 47, 52, 55]]; let pc = 0;
-      const pad = () => { const t0 = actx.currentTime; padChords[pc++ % 4].forEach(n => [-6, 6].forEach(dt => { const o = actx.createOscillator(), g = actx.createGain(), f = actx.createBiquadFilter(); o.type = 'triangle'; o.frequency.value = midi(n); o.detune.value = dt; f.type = 'lowpass'; f.frequency.value = 700;
-        g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(.018, t0 + 3); g.gain.linearRampToValueAtTime(0, t0 + 10.5); o.connect(f).connect(g).connect(bus); o.start(t0); o.stop(t0 + 11); })); };
-      const bell = () => { const n = [69, 72, 74, 76, 81, 84][Math.floor(Math.random() * 6)], t0 = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine'; o.frequency.value = midi(n); g.gain.setValueAtTime(.045, t0); g.gain.exponentialRampToValueAtTime(.0001, t0 + 2.2); o.connect(g).connect(bus); o.start(t0); o.stop(t0 + 2.3); setTimeout(bell, rnd(2200, 5200)); };
-      pad(); setInterval(pad, 9000); setTimeout(bell, 3000); setTimeout(blip, 2000);
+      musicGainNode = makeMusic(actx, master, verb); setTimeout(blip, 2000);
     } catch (_) {} }
   function tone(f, d, type = 'sine', gain = .12) { if (!actx) return; const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(); o.type = type; o.frequency.value = f; g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(.0001, t + d); o.connect(g).connect(bus); o.start(t); o.stop(t + d + .02); }
   const sfx = { grab: v => { const b = 76 + Math.min(v, 10) * 1.2; [0, 4, 7].forEach((s, i) => setTimeout(() => tone(midi(b + s), .45, 'triangle', .09), i * 70)); }, win: () => [0, 4, 7, 12, 16].forEach((s, i) => setTimeout(() => tone(midi(72 + s), .8, 'triangle', .1), i * 120)), start: () => [0, 7].forEach((s, i) => setTimeout(() => tone(midi(64 + s), .5, 'sine', .1), i * 110)) };
@@ -672,7 +710,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   function collideRocks(p) { for (const r of rocks) { const dx = p.x - r.x, dz = p.z - r.z, d = Math.hypot(dx, dz), m = r.r + .5; if (d < m && d > 1e-4) { p.x = r.x + dx / d * m; p.z = r.z + dz / d * m; } } const R = Math.hypot(p.x, p.z); if (R > BOUND) { p.x *= BOUND / R; p.z *= BOUND / R; } }
   let latSpeed = 0; const vel = V3(0, 0, 0), keys = {}; let firstPerson = false, yaw = 0, pitch = 0, dragging = false, deskOn = false, snapReady = true, clawPress = false;
   function setFP(on) { firstPerson = on; if (player.model) return; player.root.children.forEach(ch => { ch.visible = !on || player.arms.includes(ch); }); }
-  addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'KeyV' && deskOn) setFP(!firstPerson); if (e.code === 'Space') { e.preventDefault(); onPress(); kick(); } if (e.code === 'KeyC' && deskOn) mom.y = Math.min(mom.y, -1.4); }); addEventListener('keyup', e => { keys[e.code] = false; });
+  addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'KeyV' && deskOn) setFP(!firstPerson); if (e.code === 'Space') { e.preventDefault(); onPress(); kick(); } if (e.code === 'KeyC' && deskOn) mom.y = Math.min(mom.y, -1.4); if (e.code === 'KeyM') setMusic(!musicOn); }); addEventListener('keyup', e => { keys[e.code] = false; });
   canvas.addEventListener('pointerdown', e => { dragging = true; canvas.setPointerCapture(e.pointerId); onPress(); }); canvas.addEventListener('pointerup', () => { dragging = false; });
   canvas.addEventListener('pointermove', e => { if (!dragging || !deskOn) return; yaw -= e.movementX * .005; pitch = Math.max(-.5, Math.min(.6, pitch - e.movementY * .004)); });
   function onPress() { player.snap = .35; if (state === 'title' || state === 'over') startRound(); }
@@ -680,7 +718,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   function endRound() { state = 'over'; const rank = [...crabs].sort((a, b) => b.score - a.score); sfx.win(); hud.m.visible = false; msg.m.visible = true; msgPop.x = -.14; msgPop.v = 0;
     drawMsg(rank[0] === player ? 'Shiniest crab!' : rank[0].name + ' wins', rank.map((c, i) => (i + 1) + '. ' + c.name + (c === player ? ' (you)' : '') + '  ' + c.score), inVR ? 'Squeeze a trigger to play again' : 'Click or press Space to play again'); }
   const fwdV = V3(0, 0, 0), sideV = V3(0, 0, 0);
-  const prevRel = [V3(0, 0, 0), V3(0, 0, 0)], hasPrev = [false, false], mom = V3(0, 0, 0), kickPrev = { left: false, right: false }; let kickCd = 0;
+  const prevRel = [V3(0, 0, 0), V3(0, 0, 0)], hasPrev = [false, false], mom = V3(0, 0, 0), kickPrev = { left: false, right: false }, stickPrev = { left: false, right: false }; let kickCd = 0;
   function tipContact(t) { if (t.y - height(t.x, t.z) < .2) return true; for (const r of rocks) { const qx = (t.x - r.x) / r.rx, qy = (t.y - r.y) / r.ry, qz = (t.z - r.z) / r.rz; if (qx * qx + qy * qy + qz * qz < 1.25) return true; } return false; }
   function collideRocks3(p, m) { for (const r of rocks) { const qx = (p.x - r.x) / r.rx, qy = (p.y - r.y) / r.ry, qz = (p.z - r.z) / r.rz, d = Math.hypot(qx, qy, qz), lim = 1 + .35 / Math.min(r.rx, r.rz);
       if (d < lim && d > 1e-4) { const k = lim / d; p.x = r.x + qx * k * r.rx; p.y = r.y + qy * k * r.ry; p.z = r.z + qz * k * r.rz; m.multiplyScalar(.6); } }
@@ -701,7 +739,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
     let f = 0, s = 0;
     if (inVR) { const session = renderer.xr.getSession(); if (session) { renderer.xr.getCamera().getWorldDirection(fwdV); fwdV.y = 0; fwdV.normalize(); sideV.set(-fwdV.z, 0, fwdV.x);
         let pressed = false; for (const src of session.inputSources) { const gp = src.gamepad; if (!gp) continue; const ax = gp.axes.length >= 4 ? gp.axes[2] : gp.axes[0], ay = gp.axes.length >= 4 ? gp.axes[3] : gp.axes[1];
-          { const ab = gp.buttons[4] && gp.buttons[4].pressed; if (ab && !kickPrev[src.handedness]) kick(); kickPrev[src.handedness] = ab; if (gp.buttons[5] && gp.buttons[5].pressed) mom.y -= 3 * dt; }
+          { const ab = gp.buttons[4] && gp.buttons[4].pressed; if (ab && !kickPrev[src.handedness]) kick(); kickPrev[src.handedness] = ab; if (gp.buttons[5] && gp.buttons[5].pressed) mom.y -= 3 * dt; const sc = gp.buttons[3] && gp.buttons[3].pressed; if (sc && !stickPrev[src.handedness] && src.handedness === 'right') setMusic(!musicOn); stickPrev[src.handedness] = sc; }
           if (gp.buttons[0] && gp.buttons[0].pressed || gp.buttons[1] && gp.buttons[1].pressed) pressed = true;
           if (src.handedness === 'left') { if (Math.hypot(ax, ay) > .15) { f = -ay; s = ax; } } else if (src.handedness === 'right') { if (Math.abs(ax) > .7 && snapReady) { rig.rotation.y -= Math.sign(ax) * Math.PI / 4; snapReady = false; hasPrev[0] = hasPrev[1] = false; } if (Math.abs(ax) < .3) snapReady = true; } }
         if (pressed && !clawPress) onPress(); clawPress = pressed; ctrl.forEach(c => { if (c.claw) { const gp = c.src && c.src.gamepad, v = gp ? Math.max(gp.buttons[0] ? gp.buttons[0].value : 0, gp.buttons[1] ? gp.buttons[1].value : 0) : 0, target = .38 - v * .36 + Math.sin(timeU.value * 3 + c.hand) * .02 * (1 - v); c.claw.go(target, dt); } }); } }
@@ -764,6 +802,8 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
 
   // ---------- entry ----------
   const vrBtn = $('vrBtn'), deskBtn = $('deskBtn'), status = $('status'), panel = $('panel'), hint = $('hint');
+  document.getElementById('musicBtn').textContent = 'Music: ' + (musicOn ? 'on' : 'off');
+  document.getElementById('musicBtn').onclick = () => { startAudio(); setMusic(!musicOn); };
   deskBtn.onclick = () => { startAudio(); fadeA = 1; deskOn = true; panel.hidden = true; hint.hidden = false; };
   (async () => {
     if (!navigator.xr) { status.textContent = 'This browser has no WebXR. Open the page in the Meta Quest Browser for VR.'; return; }
