@@ -638,7 +638,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   let actx = null, bus = null; const midi = n => 440 * Math.pow(2, (n - 69) / 12);
   let musicOn = true, musicGainNode = null; try { musicOn = localStorage.getItem('shiny-music') !== 'off'; } catch (_) {}
   function makeMusic(ac, out, verb) {   // generative underwater score: pads, sub, kalimba arpeggio, bells, whale calls
-    const musicGain = ac.createGain(); musicGain.gain.value = musicOn ? .9 : 0;
+    const musicGain = ac.createGain(); musicGain.gain.value = musicOn ? 1.3 : 0;
     const comp = ac.createDynamicsCompressor(); comp.threshold.value = -20; comp.ratio.value = 3; musicGain.connect(comp).connect(out);
     const wet = ac.createGain(); wet.gain.value = .55; musicGain.connect(wet).connect(verb);
     const beat = 60 / 72, STEP = beat / 2, BAR = beat * 4, CH = BAR * 2, SPC = 16, mtof = n => 440 * Math.pow(2, (n - 69) / 12);
@@ -674,14 +674,14 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
     return musicGain;
   }
   function setMusic(on) { musicOn = on; try { localStorage.setItem('shiny-music', on ? 'on' : 'off'); } catch (_) {}
-    if (musicGainNode && actx) musicGainNode.gain.setTargetAtTime(on ? .9 : 0, actx.currentTime, .4);
+    if (musicGainNode && actx) musicGainNode.gain.setTargetAtTime(on ? 1.3 : 0, actx.currentTime, .4);
     const b = document.getElementById('musicBtn'); if (b) b.textContent = 'Music: ' + (on ? 'on' : 'off'); flashMsg = on ? 'Music on' : 'Music off'; flashT = 1.6; }
   function startAudio() { if (actx) { actx.resume && actx.resume(); return; }
     try { actx = new (window.AudioContext || window.webkitAudioContext)(); const master = actx.createGain(); master.gain.value = 0; master.connect(actx.destination); master.gain.linearRampToValueAtTime(.5, actx.currentTime + 4);
       const len = actx.sampleRate * 3, ir = actx.createBuffer(2, len, actx.sampleRate); for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.4); }
       const verb = actx.createConvolver(); verb.buffer = ir; const vg = actx.createGain(); vg.gain.value = .7; verb.connect(vg).connect(master); const dry = actx.createGain(); dry.gain.value = .5; dry.connect(master); bus = actx.createGain(); bus.connect(verb); bus.connect(dry);
       const nb = actx.createBuffer(1, actx.sampleRate * 4, actx.sampleRate), nd = nb.getChannelData(0); let lp = 0; for (let i = 0; i < nd.length; i++) { lp += (Math.random() * 2 - 1 - lp) * .02; nd[i] = lp * 3; }
-      const ns = actx.createBufferSource(); ns.buffer = nb; ns.loop = true; const nf = actx.createBiquadFilter(); nf.type = 'lowpass'; nf.frequency.value = 380; const ng = actx.createGain(); ng.gain.value = .35; ns.connect(nf).connect(ng).connect(master); ns.start();
+      const ns = actx.createBufferSource(); ns.buffer = nb; ns.loop = true; const nf = actx.createBiquadFilter(); nf.type = 'lowpass'; nf.frequency.value = 380; const ng = actx.createGain(); ng.gain.value = .2; ns.connect(nf).connect(ng).connect(master); ns.start();
       [41, 55, 82.4].forEach((f, i) => { const o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine'; o.frequency.value = f; g.gain.value = .03 / (i + 1); o.connect(g).connect(master); o.start(); });
       const blip = () => { const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine'; const f = rnd(260, 520); o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 2, t + .12); g.gain.setValueAtTime(.05, t); g.gain.exponentialRampToValueAtTime(.0001, t + .25); o.connect(g).connect(bus); o.start(t); o.stop(t + .3); setTimeout(blip, rnd(1500, 5000)); };
       musicGainNode = makeMusic(actx, master, verb); setTimeout(blip, 2000);
