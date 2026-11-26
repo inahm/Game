@@ -847,6 +847,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   const cleanCode = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12), cleanName = v => String(v || '').replace(/[^A-Za-z0-9 ]/g, '').trim().slice(0, 12);
   const hueOf = str => { let h = 0; for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) % 360; return h / 360; };
   const qs = new URLSearchParams(location.search), peerOpts = () => qs.get('peerHost') ? { host: qs.get('peerHost'), port: +qs.get('peerPort') || 9000, path: '/', secure: false, debug: 0 } : { debug: 0 };
+  const FATAL_NET = ['network', 'server-error', 'socket-error', 'socket-closed', 'browser-incompatible', 'invalid-id', 'invalid-key', 'ssl-unavailable'];
   function roomLine() { return NET.state === 'on' ? 'Room ' + NET.code.toUpperCase() + ' · ' + (remotes.size + 1) + (remotes.size ? ' crabs' : ' crab') : NET.state === 'connecting' ? 'Connecting…' : ''; }
   function setNetStatus(t) { NET.status = t; netStatusEl.textContent = t; term.dirty = true; hud.key = ''; }
   function broadcast(d, except) { for (const c of NET.conns.values()) if (c !== except && c.open) c.send(d); }
@@ -863,14 +864,14 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
     const hostId = 'shinyshell1-' + code, opts = peerOpts(), attempt = NET.attempt, hp = new window.Peer(hostId, opts); NET.peer = hp;
     hp.on('open', () => { if (attempt !== NET.attempt) return; NET.isHost = true; NET.myId = hostId; connected(); });
     hp.on('connection', c => hostAccept(c));
-    hp.on('error', e => { if (attempt !== NET.attempt) return; if (e.type === 'unavailable-id') { try { hp.destroy(); } catch (_) {} joinAsClient(hostId, opts, attempt); } else netFail(e); });
+    hp.on('error', e => { if (attempt !== NET.attempt) return; if (e.type === 'unavailable-id') { try { hp.destroy(); } catch (_) {} joinAsClient(hostId, opts, attempt); } else if (FATAL_NET.includes(e.type)) netFail(e); /* a guest's failed handshake must never close the room */ });
   }
   function joinAsClient(hostId, opts, attempt) {
     const peer = new window.Peer(undefined, opts); NET.peer = peer; let opened = false;
-    peer.on('open', id => { if (attempt !== NET.attempt) return; NET.myId = id; const c = peer.connect(hostId, { reliable: true, serialization: 'json' }); NET.hostConn = c; const to = setTimeout(() => { if (!opened && attempt === NET.attempt) netFail({ type: 'timeout' }); }, 12000);
+    peer.on('open', id => { if (attempt !== NET.attempt) return; NET.myId = id; const c = peer.connect(hostId, { reliable: true, serialization: 'json' }); NET.hostConn = c; const to = setTimeout(() => { if (!opened && attempt === NET.attempt) netFail({ type: 'timeout' }); }, 20000);
       c.on('open', () => { opened = true; clearTimeout(to); NET.isHost = false; c.send({ t: 'hello', n: NET.name, h: hueOf(NET.name) }); connected(); });
       c.on('data', d => clientData(d)); c.on('close', () => hostLost(attempt)); c.on('error', () => hostLost(attempt)); });
-    peer.on('error', e => { if (attempt !== NET.attempt) return; netFail(e); });
+    peer.on('error', e => { if (attempt !== NET.attempt) return; if (FATAL_NET.includes(e.type) || e.type === 'peer-unavailable') netFail(e); });
   }
   function hostLost(attempt) {   // the host left: everyone races to become the new host, the rest rejoin it
     if (attempt !== NET.attempt || NET.state !== 'on') return; const code = NET.code, name = NET.name; setNetStatus('The host left. Reconnecting…'); netLeave(true); NET.state = 'connecting';
