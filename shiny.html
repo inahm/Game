@@ -252,7 +252,7 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
       const c = new THREE.ConeGeometry(.045, h, 5, 1, true); c.translate(0, h / 2, 0); c.applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(Math.sin(a) * tilt, 0, -Math.cos(a) * tilt))); c.translate(Math.cos(a) * .12, 0, Math.sin(a) * .12); parts.push(c); }
     const geo = gradientColors(mergeGeos(parts), .15, 1, 1), mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .5, side: THREE.DoubleSide }); patchPlant(mat, .9, 2.0);
     const im = new THREE.InstancedMesh(geo, mat, 110), d = new THREE.Object3D();
-    for (let i = 0; i < 110; i++) { const x = rnd(-44, 44), z = rnd(-44, 44), k = rnd(.8, 2); d.position.set(x, height(x, z) - .05, z); d.rotation.set(0, 0, 0); d.scale.set(k * 1.4, k, k * 1.4); d.updateMatrix(); im.setMatrixAt(i, d.matrix); im.setColorAt(i, neonCol(i)); }
+    for (let i = 0; i < 110; i++) { let x, z; do { x = rnd(-44, 44); z = rnd(-44, 44); } while (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 11); const k = rnd(.8, 2); d.position.set(x, height(x, z) - .05, z); d.rotation.set(0, 0, 0); d.scale.set(k * 1.4, k, k * 1.4); d.updateMatrix(); im.setMatrixAt(i, d.matrix); im.setColorAt(i, neonCol(i)); }
     im.frustumCulled = false; scene.add(im);
   }
   {   // neon coral: branching, brain, tube sponge, fan
@@ -549,7 +549,7 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   canvas.addEventListener('pointerdown', e => { dragging = true; canvas.setPointerCapture(e.pointerId); onPress(); }); canvas.addEventListener('pointerup', () => { dragging = false; });
   canvas.addEventListener('pointermove', e => { if (!dragging || !deskOn) return; yaw -= e.movementX * .005; pitch = Math.max(-.5, Math.min(.6, pitch - e.movementY * .004)); });
   function onPress() { player.snap = .35; if (state === 'title' || state === 'over') startRound(); }
-  function startRound() { state = 'count'; countT = 3.99; lastCount = 4; roundT = ROUND; crabs.forEach(c => { c.score = 0; }); player.pos.copy(SPAWN); vel.set(0, 0, 0); flashMsg = ''; msg.m.visible = true; hud.m.visible = false; hud.key = ''; msg.key = ''; }
+  function startRound() { state = 'count'; countT = 3; lastCount = 4; roundT = ROUND; crabs.forEach(c => { c.score = 0; }); player.pos.copy(SPAWN); vel.set(0, 0, 0); flashMsg = ''; msg.m.visible = true; hud.m.visible = false; hud.key = ''; msg.key = ''; }
   function endRound() { state = 'over'; const rank = [...crabs].sort((a, b) => b.score - a.score); sfx.win(); hud.m.visible = false; msg.m.visible = true;
     drawMsg(rank[0] === player ? 'Shiniest crab!' : rank[0].name + ' wins', rank.map((c, i) => (i + 1) + '. ' + c.name + (c === player ? ' (you)' : '') + '  ' + c.score), inVR ? 'Squeeze a trigger to play again' : 'Click or press Space to play again'); }
   const fwdV = V3(0, 0, 0), sideV = V3(0, 0, 0);
