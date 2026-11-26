@@ -47,7 +47,7 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
     <ul>
       <li>Free play: no timer or rounds. Treasure earns points, and the rarest finds send a beam of light into the water.</li>
       <li>Plant a claw on the seabed or a rock and push to swim. Paddle with closed claws to glide.</li>
-      <li>VR: your arms are your legs. Plant a claw and push. Right stick turns, A kicks up. Click the right stick for music, the left stick to toggle stick walking.</li>
+      <li>VR: swim by pushing off or paddling your arms, or use the left stick to swim where you look. Right stick turns, A kicks up. Click the right stick for music, the left stick to turn stick swimming off.</li>
     </ul>
     <div id="netBox">
       <div class="mp">
@@ -779,37 +779,38 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   function startRound() { state = 'play'; sfx.start(); flashMsg = 'Explore! Grab shiny things'; flashT = 3.5; msg.m.visible = false; hud.m.visible = true; hud.key = ''; }
   function endRound() { state = 'over'; const rank = [...crabs].sort((a, b) => b.score - a.score); sfx.win(); hud.m.visible = false; msg.m.visible = true; msgPop.x = -.14; msgPop.v = 0;
     drawMsg(rank[0] === player ? 'Shiniest crab!' : rank[0].name + ' wins', rank.map((c, i) => (i + 1) + '. ' + c.name + (c === player ? ' (you)' : '') + '  ' + c.score), inVR ? 'Squeeze a trigger to play again' : 'Click or press Space to play again'); }
-  const fwdV = V3(0, 0, 0), sideV = V3(0, 0, 0);
-  let stickWalk = false; try { stickWalk = localStorage.getItem('shiny-stick') === 'on'; } catch (_) {}
+  const fwdV = V3(0, 0, 0), sideV = V3(0, 0, 0), lookV = V3(0, 0, 0);
+  let stickWalk = true; try { stickWalk = localStorage.getItem('shiny-stick') !== 'off'; } catch (_) {}
   const prevRel = [V3(0, 0, 0), V3(0, 0, 0)], hasPrev = [false, false], mom = V3(0, 0, 0), kickPrev = { left: false, right: false }, stickPrev = { left: false, right: false }; let kickCd = 0;
   function tipContact(t) { if (t.y - height(t.x, t.z) < .1) return true; for (const r of rocks) { const qx = (t.x - r.x) / r.rx, qy = (t.y - r.y) / r.ry, qz = (t.z - r.z) / r.rz; if (qx * qx + qy * qy + qz * qz < 1.25) return true; } return false; }
   function collideRocks3(p, m) { for (const r of rocks) { const qx = (p.x - r.x) / r.rx, qy = (p.y - r.y) / r.ry, qz = (p.z - r.z) / r.rz, d = Math.hypot(qx, qy, qz), lim = 1 + .35 / Math.min(r.rx, r.rz);
       if (d < lim && d > 1e-4) { const k = lim / d; p.x = r.x + qx * k * r.rx; p.y = r.y + qy * k * r.ry; p.z = r.z + qz * k * r.rz; m.multiplyScalar(.6); } }
     const R = Math.hypot(p.x, p.z); if (R > BOUND) { p.x *= BOUND / R; p.z *= BOUND / R; } }
-  function kick() { if (state !== 'play' || kickCd > 0) return; mom.y = Math.max(mom.y, 2.6); kickCd = .35; player.snap = .25; tone(midi(60), .18, 'sine', .08); }
+  function kick() { if (state !== 'play' || kickCd > 0) return; mom.y = Math.max(mom.y, 3.4); kickCd = .35; player.snap = .25; tone(midi(60), .18, 'sine', .08); }
   function handLoco(dt) {   // claws planted on the seabed or a rock push you; closed claws paddle through open water
     const push = V3(0, 0, 0); let planted = false;
     ctrl.forEach((c, i) => {
       if (!c.claw) { hasPrev[i] = false; return; }
       c.obj.updateMatrixWorld(true); const tip = c.obj.localToWorld(V3(0, 0, -.14)), rel = tip.clone().sub(rig.position);
       if (hasPrev[i]) { const d = rel.clone().sub(prevRel[i]), spd = d.length() / Math.max(dt, 1e-3);
-        if (tipContact(tip) && spd > .12 && spd < 6) { push.addScaledVector(d, -1); planted = true; }
-        else if (c.claw.openNow() < .15 && spd > .5 && spd < 6) mom.addScaledVector(d, -6); }
+        if (tipContact(tip) && spd > .12 && spd < 6) { push.addScaledVector(d, -2.6); planted = true; }
+        else if (spd > .16 && spd < 6) mom.addScaledVector(d, c.claw.openNow() < .15 ? -16 : -7); }
       prevRel[i].copy(rel); hasPrev[i] = true; });
-    if (planted) { player.pos.add(push); mom.copy(push).multiplyScalar(1.15 / Math.max(dt, 1e-3)); if (mom.length() > 7) mom.setLength(7); }
+    if (planted) { player.pos.add(push); mom.copy(push).multiplyScalar(1.6 / Math.max(dt, 1e-3)); if (mom.length() > 9) mom.setLength(9); }
   }
   function playerInput(dt) {
     let f = 0, s = 0;
     if (inVR) { const session = renderer.xr.getSession(); if (session) { renderer.xr.getCamera().getWorldDirection(fwdV); fwdV.y = 0; fwdV.normalize(); sideV.set(-fwdV.z, 0, fwdV.x);
         let pressed = false; for (const src of session.inputSources) { const gp = src.gamepad; if (!gp) continue; const ax = gp.axes.length >= 4 ? gp.axes[2] : gp.axes[0], ay = gp.axes.length >= 4 ? gp.axes[3] : gp.axes[1];
-          { const ab = gp.buttons[4] && gp.buttons[4].pressed; if (ab && !kickPrev[src.handedness]) kick(); kickPrev[src.handedness] = ab; if (gp.buttons[5] && gp.buttons[5].pressed) mom.y -= 3 * dt; const sc = gp.buttons[3] && gp.buttons[3].pressed; if (sc && !stickPrev[src.handedness]) { if (src.handedness === 'right') setMusic(!musicOn); else { stickWalk = !stickWalk; try { localStorage.setItem('shiny-stick', stickWalk ? 'on' : 'off'); } catch (_) {} flashMsg = stickWalk ? 'Stick walking on' : 'Arms only'; flashT = 2; } } stickPrev[src.handedness] = sc; }
+          { const ab = gp.buttons[4] && gp.buttons[4].pressed; if (ab && !kickPrev[src.handedness]) kick(); kickPrev[src.handedness] = ab; if (gp.buttons[5] && gp.buttons[5].pressed) mom.y -= 3 * dt; const sc = gp.buttons[3] && gp.buttons[3].pressed; if (sc && !stickPrev[src.handedness]) { if (src.handedness === 'right') setMusic(!musicOn); else { stickWalk = !stickWalk; try { localStorage.setItem('shiny-stick', stickWalk ? 'on' : 'off'); } catch (_) {} flashMsg = stickWalk ? 'Stick swimming on' : 'Arms only'; flashT = 2; } } stickPrev[src.handedness] = sc; }
           if (gp.buttons[0] && gp.buttons[0].pressed || gp.buttons[1] && gp.buttons[1].pressed) pressed = true;
           if (src.handedness === 'left') { if (stickWalk && Math.hypot(ax, ay) > .15) { f = -ay; s = ax; } } else if (src.handedness === 'right') { if (Math.abs(ax) > .7 && snapReady) { rig.rotation.y -= Math.sign(ax) * Math.PI / 4; snapReady = false; hasPrev[0] = hasPrev[1] = false; } if (Math.abs(ax) < .3) snapReady = true; } }
         if (pressed && !clawPress) onPress(); clawPress = pressed; ctrl.forEach(c => { if (c.claw) { const gp = c.src && c.src.gamepad, v = gp ? Math.max(gp.buttons[0] ? gp.buttons[0].value : 0, gp.buttons[1] ? gp.buttons[1].value : 0) : 0, target = .38 - v * .36 + Math.sin(timeU.value * 3 + c.hand) * .02 * (1 - v); c.claw.go(target, dt); } }); } }
     else if (deskOn) { rig.rotation.y = yaw; fwdV.set(-Math.sin(yaw), 0, -Math.cos(yaw)); sideV.set(-fwdV.z, 0, fwdV.x); f = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0); s = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0); }
+    if (inVR && stickWalk && f) { renderer.xr.getCamera().getWorldDirection(lookV); if (player.pos.y - height(player.pos.x, player.pos.z) > .3) mom.y += lookV.y * f * 2.6 * dt; }   // in open water the stick swims where you look, up and down too
     if (inVR) handLoco(dt);
     const sp = (keys.ShiftLeft ? 2.1 : 1.35); const tx_ = (fwdV.x * f + sideV.x * s) * sp, tz_ = (fwdV.z * f + sideV.z * s) * sp; vel.x += (tx_ - vel.x) * Math.min(1, dt * 4); vel.z += (tz_ - vel.z) * Math.min(1, dt * 4);
-    mom.y -= 1.8 * dt; mom.multiplyScalar(Math.exp(-dt * .6)); if (mom.length() > 7) mom.setLength(7); { const g0 = height(player.pos.x, player.pos.z); if (player.pos.y <= g0 + .03) { mom.x *= Math.exp(-dt * 5); mom.z *= Math.exp(-dt * 5); if (mom.y < 0) mom.y = 0; } }
+    mom.y -= 1.2 * dt; mom.multiplyScalar(Math.exp(-dt * .38)); if (mom.length() > 9) mom.setLength(9); { const g0 = height(player.pos.x, player.pos.z); if (player.pos.y <= g0 + .03) { mom.x *= Math.exp(-dt * 5); mom.z *= Math.exp(-dt * 5); if (mom.y < 0) mom.y = 0; } }
     player.pos.x += (vel.x + mom.x) * dt; player.pos.z += (vel.z + mom.z) * dt; player.pos.y += mom.y * dt; collideRocks3(player.pos, mom);
     { const g1 = height(player.pos.x, player.pos.z); if (player.pos.y < g1) player.pos.y = g1; else if (player.pos.y - g1 < .12 && mom.y <= .05) player.pos.y = g1; if (player.pos.y > 30) { player.pos.y = 30; mom.y = Math.min(mom.y, 0); } }
     latSpeed = (vel.x + mom.x) * sideV.x + (vel.z + mom.z) * sideV.z; return Math.hypot(vel.x + mom.x, vel.z + mom.z);
@@ -989,7 +990,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
         let hit = Math.hypot(it.pos.x - body.x, it.pos.z - body.z) < .85 && dy < 1.6; if (!hit) for (const tp of tips) if (tp.distanceTo(_b.set(it.pos.x, it.pos.y + ty.hover, it.pos.z)) < .45) { hit = true; break; } if (hit) collect(it, player); }
       checkZones(); if (flashT > 0) { flashT -= dt; if (flashT <= 0) flashMsg = ''; } drawHud();
     } else if (state === 'count') { countT -= dt; const n = Math.ceil(countT); if (n !== lastCount) { lastCount = n; if (n > 0) tone(midi(72), .25, 'sine', .12); msgPop.x = .14; msgPop.v = 0; } if (countT <= 0) { state = 'play'; sfx.start(); flashMsg = 'GO! Grab the shiny things'; flashT = 2.5; msg.m.visible = false; hud.m.visible = true; hud.key = ''; } else drawBig(String(n));
-    } else if (state === 'title') { msg.m.visible = true; drawMsg('Shiny Shell', ['Explore the deep. No timer, no rounds.', 'Push off rocks and the seabed to swim.', 'Grab treasure: it sticks to your shell.', 'Computer on your right: join a room.', inVR ? 'Your arms are your legs. A kicks up.' : 'WASD scuttle · Space kick · C dive'], inVR ? 'Squeeze a trigger to begin' : 'Click or press Space to begin'); }
+    } else if (state === 'title') { msg.m.visible = true; drawMsg('Shiny Shell', ['Explore the deep. No timer, no rounds.', 'Push off rocks and the seabed to swim.', 'Grab treasure: it sticks to your shell.', 'Computer on your right: join a room.', inVR ? 'Paddle your arms or use the left stick.' : 'WASD scuttle · Space kick · C dive'], inVR ? 'Squeeze a trigger to begin' : 'Click or press Space to begin'); }
     updateFlying(dt); updatePopups(dt); updateItems(t); updateSparks(dt); updateSnow(t); updateBubbles(t); updateFish(t); updateWhale(t); updateSwimmers(t); mixers.forEach(m => m.update(dt)); updateBigBubbles(dt); updateGlitter(t); netTick(dt, pSpeed); termUpdate(dt, t);
     jellies.forEach(j => { const p = Math.sin(t * 1.1 + j.ph); j.g.position.set(j.cx + Math.sin(t * .1 + j.ph) * 4, j.cy + Math.sin(t * .2 + j.ph) * 1.6, j.cz + Math.cos(t * .09 + j.ph) * 4); j.bell.scale.set(1 + p * .08, 1 - p * .12, 1 + p * .08); });
     pl[0].position.x = -10 + Math.sin(t * .3) * 4; pl[1].position.z = -20 + Math.cos(t * .25) * 5; pl[2].intensity = 2.6 + Math.sin(t * 2.1) * .5;
