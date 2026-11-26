@@ -76,7 +76,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at runtime (see CREDITS.md)
 { document.getElementById('status').textContent = 'Loading sea life…'; const loader = new GLTFLoader();
-  await Promise.all(['reef-crab', 'shore-crab', 'jellyfish', 'octopus', 'sea-turtle', 'reef-fish', 'brain-coral', 'coral-pinnacle', 'lettuce-coral', 'table-coral', 'finger-coral', 'open-brain-coral', 'starfish']
+  await Promise.all(['reef-crab', 'shore-crab', 'jellyfish', 'octopus', 'sea-turtle', 'reef-fish', 'brain-coral', 'coral-pinnacle', 'lettuce-coral', 'table-coral', 'finger-coral', 'open-brain-coral', 'starfish', 'manta-ray']
     .map(n => new Promise(res => loader.load('models/' + n + '.json', g => { MODELS[n] = g; res(); }, undefined, () => res())))); }
 (() => {
   const _rand0 = Math.random; { let a = 0x1badf00d; Math.random = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }   // the world is built from a fixed seed so every player sees the same seabed
@@ -459,7 +459,12 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   if (MODELS['sea-turtle']) for (let i = 0; i < 2; i++) { const g0 = MODELS['sea-turtle'], m = SkeletonUtils.clone(g0.scene), box = posedBox(m), k = 3.2 / Math.max(...box.getSize(V3(0, 0, 0)).toArray()), g = new THREE.Group(); m.scale.setScalar(k); g.add(m);
     m.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.emissive = new THREE.Color(0x0a4a3a); o.material.emissiveIntensity = .6; patchRim(o.material, new THREE.Color(0x29e8ff).multiplyScalar(.6)); o.frustumCulled = false; } });
     const mx = new THREE.AnimationMixer(m), clip = g0.animations.find(an => /^swim$/i.test(an.name)) || g0.animations[0]; if (clip) mx.clipAction(clip).play(); mixers.push(mx); scene.add(g); swimmers.push({ g, r: 26 + i * 9, y: 11 + i * 4, sp: (i ? -1 : 1) * .05, ph: i * 2.4 }); }
-  function updateSwimmers(t) { swimmers.forEach(sw => { const a = t * sw.sp + sw.ph, pt = aa => V3(Math.cos(aa) * sw.r, sw.y + Math.sin(t * .3 + sw.ph) * 1.5, Math.sin(aa) * sw.r - 10); sw.g.position.copy(pt(a)); sw.g.lookAt(pt(a + .02 * Math.sign(sw.sp))); }); }
+  if (MODELS['manta-ray']) for (let i = 0; i < 3; i++) { const g0 = MODELS['manta-ray'], m = SkeletonUtils.clone(g0.scene), box = posedBox(m), k = (8 + i * 1.6) / box.getSize(V3(0, 0, 0)).x, g = new THREE.Group();   // manta rays: huge, slow, banking loops through the open water
+    m.scale.setScalar(k); g.add(m);
+    m.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.color.multiply(new THREE.Color(0x7d8fb4)); o.material.emissive = new THREE.Color(0x061a3a); o.material.emissiveIntensity = .9; patchRim(o.material, new THREE.Color(0x29e8ff).multiplyScalar(.55)); o.frustumCulled = false; } });
+    const mx = new THREE.AnimationMixer(m), clip = g0.animations.find(an => /^swim$/i.test(an.name)) || g0.animations[0]; if (clip) { const ac = mx.clipAction(clip); ac.play(); ac.time = Math.random() * clip.duration; ac.timeScale = .6 + i * .1; } mixers.push(mx);
+    scene.add(g); swimmers.push({ g, r: 24 + i * 8, y: 10 + i * 3, sp: (i % 2 ? -1 : 1) * (.045 + i * .008), ph: i * 2.1, bank: .3 }); }
+  function updateSwimmers(t) { swimmers.forEach(sw => { const a = t * sw.sp + sw.ph, pt = aa => V3(Math.cos(aa) * sw.r, sw.y + Math.sin(t * .3 + sw.ph) * 1.5, Math.sin(aa) * sw.r - 10); sw.g.position.copy(pt(a)); sw.g.lookAt(pt(a + .02 * Math.sign(sw.sp))); if (sw.bank) sw.g.rotateZ(-Math.sign(sw.sp) * sw.bank); }); }
   if (MODELS.octopus) { const g0 = MODELS.octopus, m = SkeletonUtils.clone(g0.scene), box = posedBox(m), k = 2.6 / Math.max(...box.getSize(V3(0, 0, 0)).toArray()), ox = HOARD.x + 7, oz = HOARD.z + 2;
     m.scale.setScalar(k); m.position.set(ox, height(ox, oz) - box.min.y * k, oz); m.rotation.y = -2.2;
     m.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.emissive = new THREE.Color(0x5a1a08); o.material.emissiveIntensity = .7; patchRim(o.material, new THREE.Color(0xff3fb4).multiplyScalar(.6)); o.frustumCulled = false; } });

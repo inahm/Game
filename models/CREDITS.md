@@ -24,3 +24,4 @@ meshes and drawn instanced. Polyfork does not endorse this game.
 | `finger-coral.glb` | Finger leather coral | https://polyfork.dev/asset/finger-leather-coral-a1ce23 |
 | `open-brain-coral.glb` | Open brain coral | https://polyfork.dev/asset/open-brain-coral-50344c |
 | `starfish.glb` | Blue linckia starfish | https://polyfork.dev/asset/blue-linckia-starfish-e07dd3 |
+| `manta-ray.glb` | Stingray (used as the manta ray) | https://polyfork.dev/asset/stingray-base |
