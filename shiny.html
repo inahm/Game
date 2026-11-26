@@ -116,13 +116,15 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   function bakeModel(root, opts = {}) {   // flatten a glTF scene (bind pose) into one float geometry with vertex colours
     root.updateMatrixWorld(true); const parts = [], v = new THREE.Vector3();
     root.traverse(o => { if (!o.isMesh) return; const g = o.geometry, n = g.attributes.position.count, P = new Float32Array(n * 3), N = new Float32Array(n * 3), C = new Float32Array(n * 3), m = o.matrixWorld, nm = new THREE.Matrix3().getNormalMatrix(m), base = o.material.color || new THREE.Color(1, 1, 1), ca = g.attributes.color;
-      for (let i = 0; i < n; i++) { v.fromBufferAttribute(g.attributes.position, i).applyMatrix4(m); P[i * 3] = v.x; P[i * 3 + 1] = v.y; P[i * 3 + 2] = v.z;
+      for (let i = 0; i < n; i++) { posedVertex(o, i, v); P[i * 3] = v.x; P[i * 3 + 1] = v.y; P[i * 3 + 2] = v.z;
         if (g.attributes.normal) { v.fromBufferAttribute(g.attributes.normal, i).applyMatrix3(nm).normalize(); N[i * 3] = v.x; N[i * 3 + 1] = v.y; N[i * 3 + 2] = v.z; }
         let r = ca ? ca.getX(i) : 1, gg = ca ? ca.getY(i) : 1, b = ca ? ca.getZ(i) : 1; r *= base.r; gg *= base.g; b *= base.b;
         if (opts.gray) { const l = Math.min(1, (r * .3 + gg * .59 + b * .11) * 1.25); r = gg = b = l; } C[i * 3] = r; C[i * 3 + 1] = gg; C[i * 3 + 2] = b; }
       const out = new THREE.BufferGeometry(); out.setAttribute('position', new THREE.BufferAttribute(P, 3)); out.setAttribute('normal', new THREE.BufferAttribute(N, 3)); out.setAttribute('color', new THREE.BufferAttribute(C, 3)); if (g.index) out.setIndex(Array.from(g.index.array)); parts.push(out); });
-    return mergeGeos(parts);
+    const mg = mergeGeos(parts); mg.computeVertexNormals(); return mg;
   }
+  function posedVertex(o, i, v) { v.fromBufferAttribute(o.geometry.attributes.position, i); if (o.isSkinnedMesh) (o.applyBoneTransform || o.boneTransform).call(o, i, v); return v.applyMatrix4(o.matrixWorld); }
+  function posedBox(root) { root.updateMatrixWorld(true); const b = new THREE.Box3(), v = new THREE.Vector3(); root.traverse(o => { if (!o.isMesh) return; const n = o.geometry.attributes.position.count; for (let i = 0; i < n; i += 3) b.expandByPoint(posedVertex(o, i, v)); }); return b; }
   function fitGeo(g, size, ground = true) { g.computeBoundingBox(); const b = g.boundingBox, sz = b.getSize(new THREE.Vector3()), c = b.getCenter(new THREE.Vector3()), k = size / Math.max(sz.x, sz.y, sz.z); g.translate(-c.x, ground ? -b.min.y : -c.y, -c.z); g.scale(k, k, k); return g; }
   function patchRim(mat, color) {   // neon rim light in a single colour (uniform, so one program serves every tint)
     mat.customProgramCacheKey = () => 'rim'; mat.onBeforeCompile = sh => { sh.uniforms.uRim = { value: color };
@@ -391,9 +393,9 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
     g.position.set(cx, cy, cz); scene.add(g); jellies.push({ g, bell, cx, cy, cz, ph: Math.random() * 6, s: sc }); }
   } else {
     const g0 = MODELS.jellyfish, cols = [0x29e8ff, 0xff3fb4, 0xa070ff, 0x66ffcc];
-    for (let i = 0; i < 12; i++) { const ci = i % 4, big = i < 4, g = new THREE.Group(), m = SkeletonUtils.clone(g0.scene), box = new THREE.Box3().setFromObject(m), k = 2.4 / box.getSize(V3(0, 0, 0)).y, col = new THREE.Color(cols[ci]);
+    for (let i = 0; i < 12; i++) { const ci = i % 4, big = i < 4, g = new THREE.Group(), m = SkeletonUtils.clone(g0.scene), box = posedBox(m), k = 2.4 / box.getSize(V3(0, 0, 0)).y, col = new THREE.Color(cols[ci]);
       m.scale.setScalar(k); m.position.y = -box.getCenter(V3(0, 0, 0)).y * k; g.add(m);
-      m.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.color.lerp(col, .55); o.material.emissive = col.clone(); o.material.emissiveIntensity = .55; o.material.transparent = true; o.material.depthWrite = false; o.material.side = THREE.DoubleSide; patchRim(o.material, col.clone().multiplyScalar(1.8)); o.frustumCulled = false; } });
+      m.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.color.lerp(col, .55); o.material.emissive = col.clone(); o.material.emissiveIntensity = .55; o.material.transparent = true; o.material.depthWrite = false; o.material.side = THREE.DoubleSide; patchRim(o.material, col.clone().multiplyScalar(.9)); o.frustumCulled = false; } });
       { const h = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: col, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: .5 })); h.scale.setScalar(3.6); h.position.y = .5; g.add(h); }
       const mx = new THREE.AnimationMixer(m), clip = g0.animations.find(an => /swim/i.test(an.name) && !/fast/i.test(an.name)) || g0.animations[0]; if (clip) { const ac = mx.clipAction(clip); ac.play(); ac.time = Math.random() * clip.duration; ac.timeScale = rnd(.7, 1.1); } mixers.push(mx);
       const sc = big ? rnd(1.6, 2.4) : rnd(.6, 1.3); g.scale.setScalar(sc); const cx = big ? [-9, 9, -3, 14][i] : rnd(-42, 42), cz = big ? [16, 10, 2, -2][i] : rnd(-42, 42), cy = big ? rnd(7, 10) : rnd(5, 18);
@@ -435,13 +437,13 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
 
   // sea turtles gliding overhead, an octopus guarding the hoard
   const swimmers = [];
-  if (MODELS['sea-turtle']) for (let i = 0; i < 2; i++) { const g0 = MODELS['sea-turtle'], m = SkeletonUtils.clone(g0.scene), box = new THREE.Box3().setFromObject(m), k = 3.2 / Math.max(...box.getSize(V3(0, 0, 0)).toArray()), g = new THREE.Group(); m.scale.setScalar(k); g.add(m);
-    m.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.emissive = new THREE.Color(0x0a4a3a); o.material.emissiveIntensity = .6; patchRim(o.material, new THREE.Color(0x29e8ff).multiplyScalar(1.4)); o.frustumCulled = false; } });
+  if (MODELS['sea-turtle']) for (let i = 0; i < 2; i++) { const g0 = MODELS['sea-turtle'], m = SkeletonUtils.clone(g0.scene), box = posedBox(m), k = 3.2 / Math.max(...box.getSize(V3(0, 0, 0)).toArray()), g = new THREE.Group(); m.scale.setScalar(k); g.add(m);
+    m.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.emissive = new THREE.Color(0x0a4a3a); o.material.emissiveIntensity = .6; patchRim(o.material, new THREE.Color(0x29e8ff).multiplyScalar(.6)); o.frustumCulled = false; } });
     const mx = new THREE.AnimationMixer(m), clip = g0.animations.find(an => /^swim$/i.test(an.name)) || g0.animations[0]; if (clip) mx.clipAction(clip).play(); mixers.push(mx); scene.add(g); swimmers.push({ g, r: 26 + i * 9, y: 11 + i * 4, sp: (i ? -1 : 1) * .05, ph: i * 2.4 }); }
   function updateSwimmers(t) { swimmers.forEach(sw => { const a = t * sw.sp + sw.ph, pt = aa => V3(Math.cos(aa) * sw.r, sw.y + Math.sin(t * .3 + sw.ph) * 1.5, Math.sin(aa) * sw.r - 10); sw.g.position.copy(pt(a)); sw.g.lookAt(pt(a + .02 * Math.sign(sw.sp))); }); }
-  if (MODELS.octopus) { const g0 = MODELS.octopus, m = SkeletonUtils.clone(g0.scene), box = new THREE.Box3().setFromObject(m), k = 2.6 / Math.max(...box.getSize(V3(0, 0, 0)).toArray()), ox = HOARD.x + 7, oz = HOARD.z + 2;
+  if (MODELS.octopus) { const g0 = MODELS.octopus, m = SkeletonUtils.clone(g0.scene), box = posedBox(m), k = 2.6 / Math.max(...box.getSize(V3(0, 0, 0)).toArray()), ox = HOARD.x + 7, oz = HOARD.z + 2;
     m.scale.setScalar(k); m.position.set(ox, height(ox, oz) - box.min.y * k, oz); m.rotation.y = -2.2;
-    m.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.emissive = new THREE.Color(0x5a1a08); o.material.emissiveIntensity = .7; patchRim(o.material, new THREE.Color(0xff3fb4).multiplyScalar(1.5)); o.frustumCulled = false; } });
+    m.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.emissive = new THREE.Color(0x5a1a08); o.material.emissiveIntensity = .7; patchRim(o.material, new THREE.Color(0xff3fb4).multiplyScalar(.6)); o.frustumCulled = false; } });
     scene.add(m); rocks.push({ x: ox, z: oz, r: 1.2, y: m.position.y + .8, rx: 1.2, ry: 1, rz: 1.2 });
     const mx = new THREE.AnimationMixer(m), clip = g0.animations.find(an => /idle/i.test(an.name)) || g0.animations[0]; if (clip) mx.clipAction(clip).play(); mixers.push(mx); }
 
@@ -565,12 +567,12 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   const CRAB_MODEL = { You: 'reef-crab', Clawdia: 'reef-crab', Sheldon: 'shore-crab', Pinchy: 'shore-crab', Barnacle: 'reef-crab' };
   function makeCrab(name, hue, isPlayer) {
     const g = MODELS[CRAB_MODEL[name]]; if (!g) return makeProcCrab(name, hue, isPlayer);
-    const root = new THREE.Group(), wrap = new THREE.Group(), m = SkeletonUtils.clone(g.scene), box = new THREE.Box3().setFromObject(m), size = box.getSize(V3(0, 0, 0)), k = 1.45 / Math.max(size.x, size.z);
+    const root = new THREE.Group(), wrap = new THREE.Group(), m = SkeletonUtils.clone(g.scene), box = posedBox(m), size = box.getSize(V3(0, 0, 0)), k = 1.45 / Math.max(size.x, size.z);
     m.scale.setScalar(k); m.position.y = -box.min.y * k; wrap.add(m); wrap.rotation.y = Math.PI; root.add(wrap);   // models face +z, our crabs face -z
-    const tint = isPlayer ? new THREE.Color(1, 1, 1) : new THREE.Color().setHSL(hue, .55, .72), rimC = new THREE.Color().setHSL(hue, 1, .55).multiplyScalar(1.6); let mat = null;
+    const tint = isPlayer ? new THREE.Color(1, 1, 1) : new THREE.Color().setHSL(hue, .55, .72), rimC = new THREE.Color().setHSL(hue, 1, .55).multiplyScalar(.55); let mat = null;
     m.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.color.multiply(tint); o.material.roughness = .42; o.material.metalness = .1; o.material.envMapIntensity = .7; o.material.emissive = new THREE.Color().setHSL(hue, .9, .12); o.material.emissiveIntensity = 1; patchRim(o.material, rimC); o.frustumCulled = false; mat = o.material; } });
     wrap.updateMatrixWorld(true); let top = 0, cz = 0, cnt = 0; const v = V3(0, 0, 0);   // find the top of the carapace to mount the shell
-    m.traverse(o => { if (!o.isMesh) return; const pa = o.geometry.attributes.position; for (let i = 0; i < pa.count; i += 2) { v.fromBufferAttribute(pa, i).applyMatrix4(o.matrixWorld); if (Math.abs(v.x) < .18 && Math.abs(v.z) < .22) { if (v.y > top) top = v.y; cz += v.z; cnt++; } } });
+    m.traverse(o => { if (!o.isMesh) return; const pa = o.geometry.attributes.position; for (let i = 0; i < pa.count; i += 2) { posedVertex(o, i, v); if (Math.abs(v.x) < .18 && Math.abs(v.z) < .22) { if (v.y > top) top = v.y; cz += v.z; cnt++; } } });
     const shell = new Shell(root, 1, hue); shell.root.position.set(0, top - .06, (cnt ? cz / cnt : 0) + .02);
     const mixer = new THREE.AnimationMixer(m), act = {};
     g.animations.forEach(an => { const nm = an.name.toLowerCase(), key = nm.includes('side') ? 'side' : nm.startsWith('run') ? 'run' : nm.startsWith('walk') ? 'walk' : nm.startsWith('idle') ? 'idle' : null; if (key) act[key] = mixer.clipAction(an); });
@@ -593,8 +595,8 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   function updateSparks(dt) { const d = new THREE.Object3D(); for (let i = 0; i < MAXS; i++) { const s = sparks[i]; if (s.life > 0) { s.life -= dt * 1.4; s.v.multiplyScalar(1 - dt * 1.5); s.p.addScaledVector(s.v, dt); d.position.copy(s.p); d.rotation.set(s.life * 9, s.life * 7, 0); d.scale.setScalar(Math.max(s.life, 0) * s.s); } else d.scale.setScalar(0); d.updateMatrix(); sparkMesh.setMatrixAt(i, d.matrix); } sparkMesh.instanceMatrix.needsUpdate = true; }
 
   // ---------- VR claws on the controllers + mini shell on the left claw ----------
-  const clawMat = player.model ? (() => { const cm = new THREE.MeshStandardMaterial({ color: 0xe0463c, roughness: .42, metalness: .1, flatShading: true, emissive: 0x3a0610, emissiveIntensity: 1, envMapIntensity: .7 }); patchRim(cm, new THREE.Color().setHSL(player.hue, 1, .55).multiplyScalar(1.6)); return cm; })() : (() => { const cm = stripeMat(player.hue); cm.emissiveIntensity = 1.5; return cm; })();
-  const fpClaws = [-1, 1].map(sd => { const c = makeClaw(clawMat); c.group.scale.setScalar(1.4); c.group.position.set(sd * .26, -.24, -.5); c.group.rotation.set(.25, -sd * .25, 0); c.group.visible = false; camera.add(c.group); return c; });
+  const clawMat = player.model ? (() => { const cm = new THREE.MeshStandardMaterial({ color: 0xe0463c, roughness: .42, metalness: .1, flatShading: true, emissive: 0x3a0610, emissiveIntensity: 1, envMapIntensity: .7 }); patchRim(cm, new THREE.Color().setHSL(player.hue, 1, .55).multiplyScalar(.5)); return cm; })() : (() => { const cm = stripeMat(player.hue); cm.emissiveIntensity = 1.5; return cm; })();
+  const fpClaws = [-1, 1].map(sd => { const c = makeClaw(clawMat); c.group.scale.setScalar(1.15); c.group.position.set(sd * .3, -.36, -.62); c.group.rotation.set(.5, -sd * .3, 0); c.group.visible = false; camera.add(c.group); return c; });
   const ctrl = [], mini = { shell: null };
   for (let i = 0; i < 2; i++) { const obj = renderer.xr.getController(i); rig.add(obj); const c = { obj, src: null, claw: null, hand: i, open: .25, tip: V3(0, 0, 0), prev: false };
     obj.addEventListener('connected', e => { c.src = e.data; c.hand = e.data.handedness === 'left' ? 0 : 1; c.claw = makeClaw(clawMat); c.claw.group.scale.setScalar(1.7); obj.add(c.claw.group);
