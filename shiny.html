@@ -841,7 +841,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   function checkZones() { for (const z of ZONES) { if (found.has(z.n)) continue; const hit = z.y ? player.pos.y > z.y : Math.hypot(player.pos.x - z.x, player.pos.z - z.z) < z.r;
     if (hit) { found.add(z.n); try { localStorage.setItem('shiny-found', JSON.stringify([...found])); } catch (_) {} flashMsg = 'Discovered: ' + z.n + '  (' + found.size + '/' + ZONES.length + ')'; flashT = 3.5; sfx.win(); } } }
   // ================= multiplayer: PeerJS star network, the first crab into a room hosts it =================
-  const NET = { state: 'off', attempt: 0, peer: null, hostConn: null, conns: new Map(), isHost: false, code: '', name: '', myId: '', taken: new Map(), sendT: 0, status: '' };
+  const NET = { state: 'off', attempt: 0, peer: null, hostConn: null, conns: new Map(), isHost: false, code: '', name: '', myId: '', taken: new Map(), sendT: 0, status: '', chk: 0, lastMsg: 0 };
   const remotes = new Map(), nameIn = $('nameIn'), roomIn = $('roomIn'), joinBtn = $('joinBtn'), netStatusEl = $('netStatus');
   try { nameIn.value = localStorage.getItem('shiny-name') || ''; roomIn.value = (localStorage.getItem('shiny-room') || '').toUpperCase(); } catch (_) {}
   const cleanCode = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12), cleanName = v => String(v || '').replace(/[^A-Za-z0-9 ]/g, '').trim().slice(0, 12);
@@ -854,7 +854,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   function netSend(msg) { if (NET.state !== 'on') return; if (NET.isHost) { msg.id = NET.myId; broadcast(msg, null); } else if (NET.hostConn && NET.hostConn.open) NET.hostConn.send(msg); }
   function netLeave(silent) { NET.attempt++; try { NET.peer && NET.peer.destroy(); } catch (_) {} NET.peer = null; NET.hostConn = null; NET.conns.clear(); for (const r of [...remotes.values()]) removeRemote(r); NET.taken.clear(); NET.state = 'off'; NET.isHost = false; joinBtn.textContent = 'Join room'; if (!silent) setNetStatus('Left the room. You are playing solo.'); hud.key = ''; }
   function netFail(e) { const why = { 'unavailable-id': 'room busy', 'peer-unavailable': 'host not found', timeout: 'timed out', network: 'network problem', 'server-error': 'server problem', 'socket-error': 'could not reach the matchmaking server', 'room-full': 'room is full' }[e && e.type] || (e && e.type) || 'error'; netLeave(true); setNetStatus('Could not join (' + why + '). Check the code and try again.'); }
-  function connected() { NET.state = 'on'; joinBtn.textContent = 'Leave room'; setNetStatus('Connected to room ' + NET.code.toUpperCase() + ' as ' + NET.name + (NET.isHost ? ' (host)' : '') + '.'); flashMsg = 'Joined room ' + NET.code.toUpperCase(); flashT = 3; sfx.start(); hud.key = ''; }
+  function connected() { NET.state = 'on'; NET.lastMsg = performance.now(); joinBtn.textContent = 'Leave room'; setNetStatus('Connected to room ' + NET.code.toUpperCase() + ' as ' + NET.name + (NET.isHost ? ' (host)' : '') + '.'); flashMsg = 'Joined room ' + NET.code.toUpperCase(); flashT = 3; sfx.start(); hud.key = ''; }
   function netJoin(codeRaw, nameRaw) {
     const code = cleanCode(codeRaw), name = cleanName(nameRaw) || 'Crab';
     if (code.length < 3) { setNetStatus('Room code needs at least 3 letters or numbers.'); return; }
@@ -880,12 +880,14 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   function hostAccept(c) {
     if (NET.conns.size >= 7) { c.on('open', () => { c.send({ t: 'full' }); setTimeout(() => c.close(), 300); }); return; }
     c.on('data', d => {
+      c.lastSeen = performance.now();
       if (d.t === 'hello') { c.meta = { id: c.peer, n: cleanName(d.n) || 'Crab', h: d.h || 0 }; NET.conns.set(c.peer, c); addRemote(c.peer, c.meta.n, c.meta.h);
         c.send({ t: 'welcome', hid: NET.myId, hn: NET.name, hh: hueOf(NET.name), peers: [...NET.conns.values()].filter(x => x !== c && x.meta).map(x => x.meta), items: snapshot() }); broadcast({ t: 'join', id: c.peer, n: c.meta.n, h: c.meta.h }, c); }
       else if (d.t === 's') { d.id = c.peer; applyState(d); broadcast(d, c); } else if (d.t === 'got') { d.id = c.peer; remoteGot(d); broadcast(d, c); } });
     c.on('close', () => { const r = remotes.get(c.peer); if (r) { flashMsg = r.name + ' left'; flashT = 2.5; removeRemote(r); } NET.conns.delete(c.peer); broadcast({ t: 'leave', id: c.peer }, null); });
   }
   function clientData(d) {
+    NET.lastMsg = performance.now();
     if (d.t === 'welcome') { addRemote(d.hid, d.hn, d.hh); (d.peers || []).forEach(q => addRemote(q.id, q.n, q.h)); applySnapshot(d.items || []); }
     else if (d.t === 'join') { addRemote(d.id, d.n, d.h); } else if (d.t === 'leave') { const r = remotes.get(d.id); if (r) { flashMsg = r.name + ' left'; flashT = 2.5; removeRemote(r); } }
     else if (d.t === 's') applyState(d); else if (d.t === 'got') remoteGot(d); else if (d.t === 'full') netFail({ type: 'room-full' });
@@ -907,11 +909,15 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
     const da = ((r.tyaw - c.root.rotation.y + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI; c.root.rotation.y += da * k; animateCrab(c, r.sp, dt, 0); syncShell(c, r.v);
   }
   function netTick(dt, sp) {
-    if (NET.state !== 'on') return; NET.sendT -= dt;
+    if (NET.state !== 'on') return; NET.sendT -= dt; NET.chk -= dt;
+    if (NET.chk <= 0) { NET.chk = 1; const now = performance.now();   // notice players who vanished without saying goodbye
+      if (!NET.isHost) { if (NET.lastMsg && now - NET.lastMsg > 10000) { hostLost(NET.attempt); return; } }
+      else for (const c of [...NET.conns.values()]) if (c.lastSeen && now - c.lastSeen > 12000) { const r = remotes.get(c.peer); if (r) { flashMsg = r.name + ' left'; flashT = 2.5; removeRemote(r); } NET.conns.delete(c.peer); try { c.close(); } catch (_) {} broadcast({ t: 'leave', id: c.peer }, null); } }
     if (NET.sendT <= 0) { NET.sendT = .1; const dir = V3(0, 0, 0); (inVR ? renderer.xr.getCamera() : camera).getWorldDirection(dir);
       netSend({ t: 's', x: +player.pos.x.toFixed(2), y: +player.pos.y.toFixed(2), z: +player.pos.z.toFixed(2), w: +Math.atan2(-dir.x, -dir.z).toFixed(2), sp: +sp.toFixed(2), v: player.score }); }
     remotes.forEach(r => updateRemote(r, dt));
   }
+  addEventListener('pagehide', () => { try { NET.peer && NET.peer.destroy(); } catch (_) {} });   // tell everyone straight away when this tab closes
   function autoJoin() { if (cleanCode(roomIn.value).length >= 3 && NET.state === 'off') netJoin(roomIn.value, nameIn.value); }
   function toggleNetPanel() { panel.hidden = !panel.hidden; if (!panel.hidden) roomIn.focus(); }
   joinBtn.onclick = () => { if (NET.state === 'off') netJoin(roomIn.value, nameIn.value); else { netLeave(false); } };
