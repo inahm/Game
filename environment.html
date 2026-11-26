@@ -1,0 +1,404 @@
+<title>Glowmere Valley</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: fullscreen WebGL canvas; a small start card that hides once you enter. */
+:root {
+  --void: #050d12; --ink: #e8f6f4; --muted: #8fb4b6;
+  --teal: #5ff0d0; --violet: #a98bff;
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--void); color: var(--ink); font-family: var(--font-body); overflow: hidden;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  box-sizing: border-box;
+}
+#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+#panel { position: fixed; inset: 0; display: grid; place-items: end start; pointer-events: none;
+  padding: 0 max(16px, env(safe-area-inset-left, 0px)) max(24px, env(safe-area-inset-bottom, 0px)); }
+#card { pointer-events: auto; max-width: 26rem; width: 100%; box-sizing: border-box; padding: 1.4rem 1.5rem;
+  background: rgba(5, 16, 22, .66); backdrop-filter: blur(10px); border: 1px solid rgba(95, 240, 208, .2); border-radius: 12px; }
+h1 { font: 700 clamp(1.8rem, 6vw, 2.5rem)/1 var(--font-display); margin: 0 0 .5rem; letter-spacing: -.02em; color: var(--teal); }
+p { margin: .35rem 0; color: var(--muted); font-size: .92rem; line-height: 1.5; }
+.row { display: flex; flex-wrap: wrap; gap: .7rem; margin-top: 1rem; }
+button { font: 600 1rem var(--font-display); border: 0; border-radius: 9px; padding: .75rem 1.2rem; min-height: 44px; cursor: pointer; }
+#vrBtn { background: linear-gradient(90deg, var(--teal), var(--violet)); color: #04141a; }
+#deskBtn { background: transparent; color: var(--ink); border: 1px solid rgba(95, 240, 208, .4); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
+#status { font-size: .84rem; margin-top: .8rem; min-height: 1.2em; color: var(--muted); }
+#hint { position: fixed; left: 0; right: 0; bottom: max(14px, env(safe-area-inset-bottom, 0px)); text-align: center;
+  font-size: .85rem; color: var(--muted); pointer-events: none; }
+</style>
+
+<canvas id="gl"></canvas>
+<div id="panel">
+  <div id="card">
+    <h1>Glowmere Valley</h1>
+    <p>A misty night valley with a glowing pond, standing stones and drifting spores. Environment test only, no game.</p>
+    <p>In VR: left stick walks, right stick turns.</p>
+    <div class="row">
+      <button id="vrBtn" disabled>Enter VR</button>
+      <button id="deskBtn">Explore on screen</button>
+    </div>
+    <div id="status" role="status">Checking for VR support…</div>
+  </div>
+</div>
+<div id="hint" hidden>WASD to walk. Drag to look.</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.152.2/three.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const FOG_HEX = 0x0b2c35;
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+  // ---------- terrain math ----------
+  const hash = (x, y) => { const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return n - Math.floor(n); };
+  const vnoise = (x, y) => {
+    const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+    const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+    const a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
+    return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+  };
+  const fbm = (x, y) => { let s = 0, a = .5; for (let i = 0; i < 4; i++) { s += vnoise(x, y) * a; x *= 2.03; y *= 2.03; a *= .5; } return s; };
+  const POND = { x: -13, z: -12 }, WATER_Y = -1.2;
+  function height(x, z) {
+    const r = Math.hypot(x, z);
+    let h = ((fbm(x * .045 + 10, z * .045) - .42) * 11 + (vnoise(x * .25, z * .25) - .5) * .5) * smooth(4, 20, r);
+    const d2 = (x - POND.x) ** 2 + (z - POND.z) ** 2;
+    const w = Math.min(1, Math.exp(-d2 / (2 * 5.5 * 5.5)) * 1.15);
+    h = h * (1 - w) + (-2.6 + (vnoise(x * .4, z * .4) - .5) * .3) * w;
+    return h;
+  }
+
+  // ---------- renderer / scene ----------
+  const canvas = $('gl');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+  renderer.xr.enabled = true; renderer.xr.setFoveation(0.5);
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(FOG_HEX, 0.045);
+  const camera = new THREE.PerspectiveCamera(70, 1, .05, 300);
+  const rig = new THREE.Group(); rig.add(camera); scene.add(rig);
+  rig.position.set(0, 0, 9); camera.position.y = 1.65;
+  function resize() {
+    if (renderer.xr.isPresenting) return;
+    renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  }
+  addEventListener('resize', resize); resize();
+
+  // soft glow sprite texture
+  const glowTex = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+    const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.25, 'rgba(255,255,255,.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c);
+  })();
+
+  // ---------- sky, moon, stars ----------
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(150, 32, 16), new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+    fragmentShader: `varying vec3 vP;
+      void main(){
+        float h = vP.y;
+        vec3 hor = vec3(.043,.173,.208), mid = vec3(.02,.07,.11), top = vec3(.008,.02,.04);
+        vec3 c = h > 0. ? mix(hor, mix(mid, top, smoothstep(.1,.8,h)), smoothstep(0.,.35,h)) : hor;
+        gl_FragColor = vec4(c, 1.);
+      }`
+  }));
+  sky.renderOrder = -2; scene.add(sky);
+  const moonDir = new THREE.Vector3(-.32, .42, -.85).normalize();
+  const moonGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0x9fd8ff, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true }));
+  moonGlow.scale.setScalar(70); moonGlow.position.copy(moonDir).multiplyScalar(120); scene.add(moonGlow);
+  const moonDisc = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xf2fbff, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true }));
+  moonDisc.scale.setScalar(11); moonDisc.position.copy(moonDir).multiplyScalar(120); scene.add(moonDisc);
+  const stars = (() => {
+    const n = 900, p = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const u = Math.random() * .85 + .12, t = Math.random() * 6.283, r = Math.sqrt(1 - u * u);
+      p.set([Math.cos(t) * r * 140, u * 140, Math.sin(t) * r * 140], i * 3);
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3));
+    return new THREE.Points(g, new THREE.PointsMaterial({ color: 0xcfe6ff, size: .55, fog: false, transparent: true, opacity: .75 }));
+  })();
+  scene.add(stars);
+
+  // ---------- lights ----------
+  scene.add(new THREE.HemisphereLight(0x5fa0b8, 0x0a1a14, .8));
+  const moonLight = new THREE.DirectionalLight(0x9fd0ff, 1.2); moonLight.position.copy(moonDir).multiplyScalar(50); scene.add(moonLight);
+
+  // ---------- terrain ----------
+  const TS = 150, SEG = 150;
+  const tGeo = new THREE.PlaneGeometry(TS, TS, SEG, SEG); tGeo.rotateX(-Math.PI / 2);
+  const tp = tGeo.attributes.position;
+  for (let i = 0; i < tp.count; i++) tp.setY(i, height(tp.getX(i), tp.getZ(i)));
+  tGeo.computeVertexNormals();
+  {
+    const col = new Float32Array(tp.count * 3), nm = tGeo.attributes.normal, c = new THREE.Color();
+    for (let i = 0; i < tp.count; i++) {
+      const x = tp.getX(i), y = tp.getY(i), z = tp.getZ(i), slope = 1 - nm.getY(i);
+      const n = fbm(x * .15, z * .15), n2 = vnoise(x * 1.3, z * 1.3);
+      let r = .025 + n * .06, g = .09 + n * .16, b = .1 + n * .13;          // moss
+      const wet = smooth(.2, -1.6, y); r *= 1 - wet * .5; g += wet * .03; b += wet * .06;   // wet banks
+      const rock = smooth(.18, .5, slope + (n2 - .5) * .08);                // rocky on slopes
+      r += (.11 - r) * rock; g += (.15 - g) * rock; b += (.17 - b) * rock;
+      const ao = .72 + .28 * smooth(-2.8, 1.5, y) * (1 - slope * .6);        // fake occlusion in hollows
+      c.setRGB(r * ao, g * ao, b * ao, THREE.SRGBColorSpace); col.set([c.r, c.g, c.b], i * 3);
+    }
+    tGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  }
+  scene.add(new THREE.Mesh(tGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .95, metalness: 0 })));
+
+  // ---------- water ----------
+  const waterMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false,
+    uniforms: { uTime: { value: 0 }, uFog: { value: new THREE.Color(FOG_HEX) }, uDensity: { value: .045 }, uMoon: { value: moonDir } },
+    vertexShader: 'varying vec3 wP; void main(){ vec4 w = modelMatrix*vec4(position,1.); wP = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }',
+    fragmentShader: `varying vec3 wP; uniform float uTime, uDensity; uniform vec3 uFog, uMoon;
+      void main(){
+        vec2 p = wP.xz;
+        float r1 = sin(p.x*1.7+uTime*.8)+sin(p.y*2.1-uTime*.6)+sin((p.x+p.y)*3.1+uTime*1.3)*.5;
+        vec2 gr = vec2(cos(p.x*1.7+uTime*.8)*1.7 + cos((p.x+p.y)*3.1+uTime*1.3)*1.5, cos(p.y*2.1-uTime*.6)*2.1 + cos((p.x+p.y)*3.1+uTime*1.3)*1.5);
+        vec3 n = normalize(vec3(-gr.x*.03, 1., -gr.y*.03));
+        vec3 v = normalize(cameraPosition - wP);
+        float f = pow(1. - max(dot(n, v), 0.), 3.);
+        vec3 deep = vec3(.01,.06,.08), sky = vec3(.08,.28,.34);
+        vec3 col = mix(deep, sky, f*.9+.1);
+        vec3 refl = reflect(-v, n);
+        float moon = pow(max(dot(refl, normalize(uMoon)), 0.), 220.);
+        col += vec3(.7,.9,1.) * moon * 2.5;
+        float glow = smoothstep(.4, 1., sin(r1*2.)*.5+.5) * .05; col += vec3(.2,.9,.8) * glow;
+        float d = length(cameraPosition - wP);
+        float fogF = 1. - exp(-uDensity*uDensity*d*d);
+        col = mix(col, uFog, fogF);
+        gl_FragColor = vec4(col, .88);
+      }`
+  });
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), waterMat);
+  water.rotation.x = -Math.PI / 2; water.position.set(POND.x, WATER_Y, POND.z); scene.add(water);
+
+  // ---------- trees (instanced) ----------
+  const treeSpots = [];
+  for (let tries = 0; tries < 2500 && treeSpots.length < 260; tries++) {
+    const x = rnd(-68, 68), z = rnd(-68, 68), r = Math.hypot(x, z);
+    if (r < 10) continue;
+    const y = height(x, z); if (y < WATER_Y + .5) continue;
+    if (Math.hypot(x - POND.x, z - POND.z) < 9) continue;
+    treeSpots.push([x, y, z]);
+  }
+  const trunkGeo = new THREE.CylinderGeometry(.1, .24, 7, 6); trunkGeo.translate(0, 3.5, 0);
+  const coneGeo = new THREE.ConeGeometry(1.5, 7, 7); coneGeo.translate(0, 6.2, 0);
+  const treeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 });
+  const trunks = new THREE.InstancedMesh(trunkGeo, treeMat, treeSpots.length);
+  const cones = new THREE.InstancedMesh(coneGeo, treeMat, treeSpots.length);
+  { const d = new THREE.Object3D(), c = new THREE.Color();
+    treeSpots.forEach((s, i) => {
+      const k = rnd(.8, 1.9); d.position.set(s[0], s[1] - .15, s[2]); d.rotation.set(rnd(-.04, .04), rnd(0, 6.28), rnd(-.04, .04)); d.scale.set(k, k * rnd(.9, 1.3), k); d.updateMatrix();
+      trunks.setMatrixAt(i, d.matrix); cones.setMatrixAt(i, d.matrix);
+      trunks.setColorAt(i, c.setRGB(.06, .05, .05, THREE.SRGBColorSpace));
+      cones.setColorAt(i, c.setRGB(.03 + Math.random() * .03, .1 + Math.random() * .06, .1 + Math.random() * .05, THREE.SRGBColorSpace));
+    });
+    scene.add(trunks, cones); }
+
+  // ---------- standing stones + runes ----------
+  const stoneMat = new THREE.MeshStandardMaterial({ color: 0x5a7078, roughness: .85, flatShading: true });
+  const runeTex = (() => {
+    const c = document.createElement('canvas'); c.width = 128; c.height = 256; const g = c.getContext('2d');
+    g.strokeStyle = '#7ffff0'; g.lineWidth = 7; g.lineCap = 'round'; g.shadowColor = '#5ff0d0'; g.shadowBlur = 18;
+    g.beginPath(); g.moveTo(64, 30); g.lineTo(64, 226); g.moveTo(64, 80); g.lineTo(30, 120); g.moveTo(64, 80); g.lineTo(98, 120);
+    g.moveTo(64, 150); g.lineTo(34, 186); g.moveTo(64, 150); g.lineTo(94, 186); g.stroke();
+    return new THREE.CanvasTexture(c);
+  })();
+  const runeMats = [];
+  for (let i = 0; i < 7; i++) {
+    const a = i / 7 * Math.PI * 2 + .3, rad = 5.8 + rnd(-.3, .3), x = Math.cos(a) * rad, z = Math.sin(a) * rad;
+    const g = new THREE.IcosahedronGeometry(1, 1), p = g.attributes.position;
+    const sd = rnd(0, 100);   // jitter depends on position so shared corners stay joined
+    for (let j = 0; j < p.count; j++) {
+      const px = p.getX(j), py = p.getY(j), pz = p.getZ(j), k = 1 + (hash(Math.round(px * 40) + sd, Math.round(py * 40) + Math.round(pz * 40)) - .5) * .28;
+      p.setXYZ(j, px * k, py, pz * k);
+    }
+    g.computeVertexNormals();
+    const s = new THREE.Mesh(g, stoneMat); const hgt = rnd(1.5, 2.3);
+    s.scale.set(.55, hgt, .38); s.position.set(x, height(x, z) + hgt * .8, z); s.rotation.set(rnd(-.06, .06), -a + Math.PI / 2, rnd(-.08, .08)); scene.add(s);
+    const rm = new THREE.MeshBasicMaterial({ map: runeTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: .9 });
+    runeMats.push(rm);
+    const rune = new THREE.Mesh(new THREE.PlaneGeometry(.55, 1.1), rm);
+    rune.position.set(Math.cos(a) * (rad - .42), s.position.y + .1, Math.sin(a) * (rad - .42)); rune.lookAt(0, rune.position.y, 0); scene.add(rune);
+  }
+
+  // ---------- central crystal ----------
+  const crystalGroup = new THREE.Group(); crystalGroup.position.set(0, height(0, 0) + 1.5, 0); scene.add(crystalGroup);
+  const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(.45, 0), new THREE.MeshStandardMaterial({ color: 0x1b6f7a, emissive: 0x5ff0d0, emissiveIntensity: 1.4, roughness: .15, metalness: .2, flatShading: true }));
+  crystal.scale.set(.8, 1.7, .8); crystalGroup.add(crystal);
+  const cGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0x5ff0d0, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+  cGlow.scale.setScalar(4.5); crystalGroup.add(cGlow);
+  const cLight = new THREE.PointLight(0x5ff0d0, 2.2, 14, 1.6); crystalGroup.add(cLight);
+  const altar = new THREE.Mesh(new THREE.CylinderGeometry(.5, .75, .35, 8), stoneMat); altar.position.set(0, height(0, 0) + .17, 0); scene.add(altar);
+
+  // ---------- glowing flora ----------
+  const floraSpots = [];
+  for (let tries = 0; tries < 2000 && floraSpots.length < 320; tries++) {
+    const x = rnd(-42, 42), z = rnd(-42, 42), r = Math.hypot(x, z);
+    if (r < 2.5 || Math.hypot(x - POND.x, z - POND.z) < 4) continue;
+    const y = height(x, z); if (y < WATER_Y + .1) continue;
+    floraSpots.push([x, y, z]);
+  }
+  const palette = [[.2, 1, .85], [.55, .45, 1], [.35, 1, .55], [.2, .7, 1]];
+  const fGeo = new THREE.BufferGeometry(), fpos = new Float32Array(floraSpots.length * 3), fcol = new Float32Array(floraSpots.length * 3);
+  const caps = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6, 0, 6.283, 0, 1.6), new THREE.MeshBasicMaterial({ color: 0xffffff }), floraSpots.length);
+  { const d = new THREE.Object3D(), c = new THREE.Color();
+    floraSpots.forEach((s, i) => {
+      const pc = palette[i % palette.length], k = rnd(.05, .16);
+      fpos.set([s[0], s[1] + k * .8, s[2]], i * 3); fcol.set(pc, i * 3);
+      d.position.set(s[0], s[1], s[2]); d.scale.set(k, k * .8, k); d.updateMatrix(); caps.setMatrixAt(i, d.matrix);
+      caps.setColorAt(i, c.setRGB(pc[0], pc[1], pc[2], THREE.SRGBColorSpace));
+    });
+    scene.add(caps); }
+  fGeo.setAttribute('position', new THREE.BufferAttribute(fpos, 3)); fGeo.setAttribute('color', new THREE.BufferAttribute(fcol, 3));
+  const floraGlow = new THREE.Points(fGeo, new THREE.PointsMaterial({ map: glowTex, size: .9, vertexColors: true, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: .8 }));
+  scene.add(floraGlow);
+
+  // ---------- drifting spores + fireflies ----------
+  function makeSwarm(n, color, size, spread) {
+    const base = new Float32Array(n * 3), pos = new Float32Array(n * 3), seed = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = rnd(-spread, spread), z = rnd(-spread, spread);
+      base.set([x, Math.max(height(x, z), WATER_Y) + rnd(.3, 3.5), z], i * 3); seed[i] = Math.random() * 100;
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const pts = new THREE.Points(g, new THREE.PointsMaterial({ map: glowTex, color, size, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: .9 }));
+    pts.frustumCulled = false; scene.add(pts); return { base, pos, seed, g, n };
+  }
+  const spores = makeSwarm(500, 0x8ffff0, .16, 30), flies = makeSwarm(60, 0xffe08a, .35, 22);
+  function updateSwarm(s, t, amp, speed) {
+    for (let i = 0; i < s.n; i++) {
+      const k = s.seed[i], j = i * 3;
+      s.pos[j] = s.base[j] + Math.sin(t * speed + k) * amp + Math.sin(t * .13 + k * 3) * amp;
+      s.pos[j + 1] = s.base[j + 1] + Math.sin(t * speed * .7 + k * 2.1) * amp * .6;
+      s.pos[j + 2] = s.base[j + 2] + Math.cos(t * speed + k * 1.3) * amp + Math.cos(t * .11 + k) * amp;
+    }
+    s.g.attributes.position.needsUpdate = true;
+  }
+
+  // ---------- layered ground mist ----------
+  const mistTex = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+    for (let i = 0; i < 46; i++) {
+      const x = Math.random() * 256, y = Math.random() * 256, r = rnd(24, 70);
+      for (const ox of [-256, 0, 256]) for (const oy of [-256, 0, 256]) {
+        const gr = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+        gr.addColorStop(0, 'rgba(255,255,255,.30)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
+      }
+    }
+    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t;
+  })();
+  const mists = [];
+  for (let i = 0; i < 16; i++) {
+    const tex = mistTex.clone(); tex.needsUpdate = true; tex.repeat.set(3.5, 3.5);
+    const high = i >= 11;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(110, 110), new THREE.MeshBasicMaterial({ map: tex, color: 0x86c4cc, transparent: true, opacity: high ? .1 : .14, depthWrite: false }));
+    m.rotation.x = -Math.PI / 2; m.rotation.z = rnd(0, 6.28);
+    m.position.y = high ? 2.2 + (i - 11) * 1.1 : -.9 + i * .22; m.position.x = rnd(-4, 4); m.position.z = rnd(-4, 4);
+    m.userData = { dx: rnd(-.01, .01), dy: rnd(-.01, .01) }; mists.push(m); scene.add(m);
+  }
+
+  // ---------- light shafts ----------
+  const shaftMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `varying vec2 vUv; varying float vE; void main(){ vUv = uv; vec4 mv = modelViewMatrix*vec4(position,1.);
+      vec3 n = normalize(normalMatrix*normal); vE = abs(dot(n, normalize(-mv.xyz))); gl_Position = projectionMatrix*mv; }`,
+    fragmentShader: `varying vec2 vUv; varying float vE; uniform float uTime;
+      void main(){ float a = pow(vUv.y, 1.6) * pow(vE, 1.8) * (.10 + .03*sin(uTime*.7 + vUv.x*6.)); gl_FragColor = vec4(vec3(.45,.8,1.)*a*3., a); }`
+  });
+  const shaftDir = moonDir.clone().negate(); const shaftQ = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), shaftDir);
+  for (let i = 0; i < 7; i++) {
+    const a = rnd(0, 6.28), r = rnd(8, 28), x = Math.cos(a) * r, z = Math.sin(a) * r;
+    const len = 22, g = new THREE.CylinderGeometry(rnd(.8, 2.2), rnd(2, 4.5), len, 20, 1, true);
+    const m = new THREE.Mesh(g, shaftMat); m.quaternion.copy(shaftQ);
+    m.position.set(x, height(x, z) + 1, z).addScaledVector(shaftDir, -len / 2 + 2); scene.add(m);
+  }
+
+  // ---------- controls ----------
+  const keys = {}; let yaw = 0, pitch = 0, dragging = false, deskOn = false;
+  addEventListener('keydown', e => { keys[e.code] = true; }); addEventListener('keyup', e => { keys[e.code] = false; });
+  canvas.addEventListener('pointerdown', e => { dragging = true; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener('pointerup', () => { dragging = false; });
+  canvas.addEventListener('pointermove', e => {
+    if (!dragging || !deskOn) return;
+    yaw -= e.movementX * .004; pitch = Math.max(-1.3, Math.min(1.3, pitch - e.movementY * .004));
+  });
+  const fwd = new THREE.Vector3(), side = new THREE.Vector3();
+  function tryMove(dx, dz) {
+    const nx = rig.position.x + dx, nz = rig.position.z + dz;
+    if (Math.abs(nx) > 62 || Math.abs(nz) > 62) return;
+    if (height(nx, nz) < WATER_Y + .15) return;      // don't wade into the pond
+    rig.position.x = nx; rig.position.z = nz;
+  }
+  let snapReady = true;
+  function vrInput(dt) {
+    const session = renderer.xr.getSession(); if (!session) return;
+    const xrCam = renderer.xr.getCamera(); xrCam.getWorldDirection(fwd); fwd.y = 0; fwd.normalize(); side.set(-fwd.z, 0, fwd.x);
+    for (const src of session.inputSources) {
+      const gp = src.gamepad; if (!gp) continue;
+      const ax = gp.axes.length >= 4 ? gp.axes[2] : gp.axes[0], ay = gp.axes.length >= 4 ? gp.axes[3] : gp.axes[1];
+      if (src.handedness === 'left') {
+        if (Math.hypot(ax, ay) > .15) tryMove((fwd.x * -ay + side.x * ax) * 2.6 * dt, (fwd.z * -ay + side.z * ax) * 2.6 * dt);
+      } else if (src.handedness === 'right') {
+        if (Math.abs(ax) > .7 && snapReady) { rig.rotation.y -= Math.sign(ax) * Math.PI / 4; snapReady = false; }
+        if (Math.abs(ax) < .3) snapReady = true;
+      }
+    }
+  }
+  function deskInput(dt) {
+    rig.rotation.y = yaw; camera.rotation.x = pitch;
+    const f = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
+    const s = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+    if (!f && !s) return;
+    const sp = (keys.ShiftLeft ? 5 : 2.8) * dt, cy = Math.cos(yaw), sy = Math.sin(yaw);
+    tryMove((-sy * f + cy * s) * sp, (-cy * f - sy * s) * sp);
+  }
+
+  // ---------- loop ----------
+  const clock = new THREE.Clock(); let t = 0;
+  function frame() {
+    const dt = Math.min(clock.getDelta(), .05); t += dt;
+    if (renderer.xr.isPresenting) vrInput(dt); else if (deskOn) deskInput(dt);
+    rig.position.y = Math.max(height(rig.position.x, rig.position.z), WATER_Y);
+    waterMat.uniforms.uTime.value = t; shaftMat.uniforms.uTime.value = t;
+    crystalGroup.rotation.y = t * .5; crystalGroup.position.y = height(0, 0) + 1.5 + Math.sin(t * 1.2) * .08;
+    cLight.intensity = 2.2 + Math.sin(t * 2.3) * .4; cGlow.material.opacity = .85 + Math.sin(t * 2.3) * .1;
+    runeMats.forEach((m, i) => m.opacity = .6 + .35 * Math.sin(t * 1.1 + i));
+    mists.forEach(m => { m.material.map.offset.x += m.userData.dx * dt; m.material.map.offset.y += m.userData.dy * dt; });
+    updateSwarm(spores, t, .45, .4); updateSwarm(flies, t, 1.6, .5);
+    renderer.render(scene, camera);
+  }
+
+  // ---------- entry ----------
+  const vrBtn = $('vrBtn'), deskBtn = $('deskBtn'), status = $('status'), panel = $('panel'), hint = $('hint');
+  deskBtn.onclick = () => { deskOn = true; panel.hidden = true; hint.hidden = false; };
+  (async () => {
+    if (!navigator.xr) { status.textContent = 'This browser has no WebXR. Open the page in the Meta Quest Browser for VR.'; return; }
+    try { if (!(await navigator.xr.isSessionSupported('immersive-vr'))) { status.textContent = 'VR is not available here. Open the page in the Meta Quest Browser.'; return; } }
+    catch (e) { status.textContent = 'VR is blocked in this view. Open the page directly in the Meta Quest Browser.'; return; }
+    status.textContent = 'VR ready.'; vrBtn.disabled = false;
+    vrBtn.onclick = async () => {
+      try {
+        const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] });
+        camera.position.y = 0; camera.rotation.x = 0; rig.rotation.y = 0; deskOn = false; panel.hidden = true; hint.hidden = true;
+        session.addEventListener('end', () => { camera.position.y = 1.65; panel.hidden = false; resize(); });
+        await renderer.xr.setSession(session);
+      } catch (e) { status.textContent = 'Could not start VR: ' + e.message; }
+    };
+  })();
+  renderer.setAnimationLoop(frame);
+})();
+</script>
