@@ -40,7 +40,7 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
     <ul>
       <li>Free play: no timer, no rounds, no score to beat.</li>
       <li>Plant a claw on the seabed or a rock and push to swim. Paddle with closed claws to glide.</li>
-      <li>VR: left stick scuttles, right stick turns, A kicks up. Touch treasure to grab it. Squeeze to snap. Click the right stick to toggle music.</li>
+      <li>VR: your arms are your legs. Plant a claw and push. Right stick turns, A kicks up. Click the right stick for music, the left stick to toggle stick walking.</li>
     </ul>
     <div class="row">
       <button id="vrBtn" disabled>Enter VR</button>
@@ -601,9 +601,9 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   const fpClaws = [-1, 1].map(sd => { const c = makeClaw(clawMat); c.group.scale.setScalar(1.15); c.group.position.set(sd * .3, -.36, -.62); c.group.rotation.set(.5, -sd * .3, 0); c.group.visible = false; camera.add(c.group); return c; });
   const ctrl = [], mini = { shell: null };
   for (let i = 0; i < 2; i++) { const obj = renderer.xr.getController(i); rig.add(obj); const c = { obj, src: null, claw: null, hand: i, open: .25, tip: V3(0, 0, 0), prev: false };
-    obj.addEventListener('connected', e => { c.src = e.data; c.hand = e.data.handedness === 'left' ? 0 : 1; c.claw = makeClaw(clawMat); c.claw.group.scale.setScalar(1.7); obj.add(c.claw.group);
+    obj.addEventListener('connected', e => { c.src = e.data; c.hand = e.data.handedness === 'left' ? 0 : 1; c.claw = makeClaw(clawMat); c.claw.group.scale.setScalar(1.0); obj.add(c.claw.group);
       c.fore = new THREE.Mesh(limb(V3(0, 0, .06), V3(0, -.14, .62), .075, .05, 10), clawMat); obj.add(c.fore);
-      c.halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0x7ad8ff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: .75 })); c.halo.scale.setScalar(.55); c.halo.position.set(0, 0, -.55); obj.add(c.halo);
+      c.halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0x7ad8ff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: .75 })); c.halo.scale.setScalar(.35); c.halo.position.set(0, 0, -.3); obj.add(c.halo);
       if (c.hand === 0 && !mini.shell) { mini.shell = new Shell(obj, .2, player.hue); mini.shell.root.position.set(0, .1, .06); player.shell.mirror = mini.shell; player.shell.put = ((orig) => function (p) { orig.call(this, p); mini.shell.put(p); })(Shell.prototype.put); } });
     obj.addEventListener('disconnected', () => { if (c.claw) obj.remove(c.claw.group); if (c.fore) obj.remove(c.fore); if (c.halo) obj.remove(c.halo); c.claw = null; c.fore = null; c.halo = null; c.src = null; }); ctrl.push(c); }
   function haptic(strength, ms) { ctrl.forEach(c => { try { const a = c.src && c.src.gamepad && c.src.gamepad.hapticActuators; if (a && a[0]) a[0].pulse(strength, ms); } catch (_) {} }); }
@@ -718,8 +718,9 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   function endRound() { state = 'over'; const rank = [...crabs].sort((a, b) => b.score - a.score); sfx.win(); hud.m.visible = false; msg.m.visible = true; msgPop.x = -.14; msgPop.v = 0;
     drawMsg(rank[0] === player ? 'Shiniest crab!' : rank[0].name + ' wins', rank.map((c, i) => (i + 1) + '. ' + c.name + (c === player ? ' (you)' : '') + '  ' + c.score), inVR ? 'Squeeze a trigger to play again' : 'Click or press Space to play again'); }
   const fwdV = V3(0, 0, 0), sideV = V3(0, 0, 0);
+  let stickWalk = false; try { stickWalk = localStorage.getItem('shiny-stick') === 'on'; } catch (_) {}
   const prevRel = [V3(0, 0, 0), V3(0, 0, 0)], hasPrev = [false, false], mom = V3(0, 0, 0), kickPrev = { left: false, right: false }, stickPrev = { left: false, right: false }; let kickCd = 0;
-  function tipContact(t) { if (t.y - height(t.x, t.z) < .2) return true; for (const r of rocks) { const qx = (t.x - r.x) / r.rx, qy = (t.y - r.y) / r.ry, qz = (t.z - r.z) / r.rz; if (qx * qx + qy * qy + qz * qz < 1.25) return true; } return false; }
+  function tipContact(t) { if (t.y - height(t.x, t.z) < .1) return true; for (const r of rocks) { const qx = (t.x - r.x) / r.rx, qy = (t.y - r.y) / r.ry, qz = (t.z - r.z) / r.rz; if (qx * qx + qy * qy + qz * qz < 1.25) return true; } return false; }
   function collideRocks3(p, m) { for (const r of rocks) { const qx = (p.x - r.x) / r.rx, qy = (p.y - r.y) / r.ry, qz = (p.z - r.z) / r.rz, d = Math.hypot(qx, qy, qz), lim = 1 + .35 / Math.min(r.rx, r.rz);
       if (d < lim && d > 1e-4) { const k = lim / d; p.x = r.x + qx * k * r.rx; p.y = r.y + qy * k * r.ry; p.z = r.z + qz * k * r.rz; m.multiplyScalar(.6); } }
     const R = Math.hypot(p.x, p.z); if (R > BOUND) { p.x *= BOUND / R; p.z *= BOUND / R; } }
@@ -728,32 +729,32 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
     const push = V3(0, 0, 0); let planted = false;
     ctrl.forEach((c, i) => {
       if (!c.claw) { hasPrev[i] = false; return; }
-      c.obj.updateMatrixWorld(true); const tip = c.obj.localToWorld(V3(0, 0, -.55)), rel = tip.clone().sub(rig.position);
+      c.obj.updateMatrixWorld(true); const tip = c.obj.localToWorld(V3(0, 0, -.14)), rel = tip.clone().sub(rig.position);
       if (hasPrev[i]) { const d = rel.clone().sub(prevRel[i]), spd = d.length() / Math.max(dt, 1e-3);
-        if (tipContact(tip) && spd > .12 && spd < 6) { push.addScaledVector(d, -4.5); planted = true; }
-        else if (c.claw.openNow() < .15 && spd > .5 && spd < 6) mom.addScaledVector(d, -9); }
+        if (tipContact(tip) && spd > .12 && spd < 6) { push.addScaledVector(d, -1); planted = true; }
+        else if (c.claw.openNow() < .15 && spd > .5 && spd < 6) mom.addScaledVector(d, -6); }
       prevRel[i].copy(rel); hasPrev[i] = true; });
-    if (planted) { player.pos.add(push); mom.copy(push).multiplyScalar(.8 / Math.max(dt, 1e-3)); if (mom.length() > 4.5) mom.setLength(4.5); }
+    if (planted) { player.pos.add(push); mom.copy(push).multiplyScalar(1.15 / Math.max(dt, 1e-3)); if (mom.length() > 7) mom.setLength(7); }
   }
   function playerInput(dt) {
     let f = 0, s = 0;
     if (inVR) { const session = renderer.xr.getSession(); if (session) { renderer.xr.getCamera().getWorldDirection(fwdV); fwdV.y = 0; fwdV.normalize(); sideV.set(-fwdV.z, 0, fwdV.x);
         let pressed = false; for (const src of session.inputSources) { const gp = src.gamepad; if (!gp) continue; const ax = gp.axes.length >= 4 ? gp.axes[2] : gp.axes[0], ay = gp.axes.length >= 4 ? gp.axes[3] : gp.axes[1];
-          { const ab = gp.buttons[4] && gp.buttons[4].pressed; if (ab && !kickPrev[src.handedness]) kick(); kickPrev[src.handedness] = ab; if (gp.buttons[5] && gp.buttons[5].pressed) mom.y -= 3 * dt; const sc = gp.buttons[3] && gp.buttons[3].pressed; if (sc && !stickPrev[src.handedness] && src.handedness === 'right') setMusic(!musicOn); stickPrev[src.handedness] = sc; }
+          { const ab = gp.buttons[4] && gp.buttons[4].pressed; if (ab && !kickPrev[src.handedness]) kick(); kickPrev[src.handedness] = ab; if (gp.buttons[5] && gp.buttons[5].pressed) mom.y -= 3 * dt; const sc = gp.buttons[3] && gp.buttons[3].pressed; if (sc && !stickPrev[src.handedness]) { if (src.handedness === 'right') setMusic(!musicOn); else { stickWalk = !stickWalk; try { localStorage.setItem('shiny-stick', stickWalk ? 'on' : 'off'); } catch (_) {} flashMsg = stickWalk ? 'Stick walking on' : 'Arms only'; flashT = 2; } } stickPrev[src.handedness] = sc; }
           if (gp.buttons[0] && gp.buttons[0].pressed || gp.buttons[1] && gp.buttons[1].pressed) pressed = true;
-          if (src.handedness === 'left') { if (Math.hypot(ax, ay) > .15) { f = -ay; s = ax; } } else if (src.handedness === 'right') { if (Math.abs(ax) > .7 && snapReady) { rig.rotation.y -= Math.sign(ax) * Math.PI / 4; snapReady = false; hasPrev[0] = hasPrev[1] = false; } if (Math.abs(ax) < .3) snapReady = true; } }
+          if (src.handedness === 'left') { if (stickWalk && Math.hypot(ax, ay) > .15) { f = -ay; s = ax; } } else if (src.handedness === 'right') { if (Math.abs(ax) > .7 && snapReady) { rig.rotation.y -= Math.sign(ax) * Math.PI / 4; snapReady = false; hasPrev[0] = hasPrev[1] = false; } if (Math.abs(ax) < .3) snapReady = true; } }
         if (pressed && !clawPress) onPress(); clawPress = pressed; ctrl.forEach(c => { if (c.claw) { const gp = c.src && c.src.gamepad, v = gp ? Math.max(gp.buttons[0] ? gp.buttons[0].value : 0, gp.buttons[1] ? gp.buttons[1].value : 0) : 0, target = .38 - v * .36 + Math.sin(timeU.value * 3 + c.hand) * .02 * (1 - v); c.claw.go(target, dt); } }); } }
     else if (deskOn) { rig.rotation.y = yaw; fwdV.set(-Math.sin(yaw), 0, -Math.cos(yaw)); sideV.set(-fwdV.z, 0, fwdV.x); f = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0); s = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0); }
     if (inVR) handLoco(dt);
     const sp = (keys.ShiftLeft ? 2.1 : 1.35); const tx_ = (fwdV.x * f + sideV.x * s) * sp, tz_ = (fwdV.z * f + sideV.z * s) * sp; vel.x += (tx_ - vel.x) * Math.min(1, dt * 4); vel.z += (tz_ - vel.z) * Math.min(1, dt * 4);
-    mom.y -= .9 * dt; mom.multiplyScalar(Math.exp(-dt * 1.1)); { const g0 = height(player.pos.x, player.pos.z); if (player.pos.y <= g0 + .03) { mom.x *= Math.exp(-dt * 5); mom.z *= Math.exp(-dt * 5); if (mom.y < 0) mom.y = 0; } }
+    mom.y -= 1.8 * dt; mom.multiplyScalar(Math.exp(-dt * .6)); if (mom.length() > 7) mom.setLength(7); { const g0 = height(player.pos.x, player.pos.z); if (player.pos.y <= g0 + .03) { mom.x *= Math.exp(-dt * 5); mom.z *= Math.exp(-dt * 5); if (mom.y < 0) mom.y = 0; } }
     player.pos.x += (vel.x + mom.x) * dt; player.pos.z += (vel.z + mom.z) * dt; player.pos.y += mom.y * dt; collideRocks3(player.pos, mom);
     { const g1 = height(player.pos.x, player.pos.z); if (player.pos.y < g1) player.pos.y = g1; else if (player.pos.y - g1 < .12 && mom.y <= .05) player.pos.y = g1; if (player.pos.y > 30) { player.pos.y = 30; mom.y = Math.min(mom.y, 0); } }
     latSpeed = (vel.x + mom.x) * sideV.x + (vel.z + mom.z) * sideV.z; return Math.hypot(vel.x + mom.x, vel.z + mom.z);
   }
   const tipV = V3(0, 0, 0);
   function playerTips() { const tips = [];
-    if (inVR) ctrl.forEach(c => { if (c.claw) { c.obj.updateMatrixWorld(true); tips.push(c.obj.localToWorld(V3(0, 0, -.55))); } });
+    if (inVR) ctrl.forEach(c => { if (c.claw) { c.obj.updateMatrixWorld(true); tips.push(c.obj.localToWorld(V3(0, 0, -.3))); } });
     else player.claws.forEach(c => { if (c.tip) { tips.push(c.tip(V3(0, 0, 0))); return; } c.group.updateWorldMatrix(true, false); tips.push(c.group.localToWorld(V3(0, 0, -.55))); }); return tips; }
   function npcThink(c, dt) {
     c.tt -= dt; if (c.tt <= 0 || !c.target || !c.target.alive) { c.tt = rnd(.8, 1.6); let best = null, bd = 1e9; for (const it of items) { if (!it.alive || it.lift) continue; const d = Math.hypot(it.pos.x - c.pos.x, it.pos.z - c.pos.z) * (1 + Math.random() * .35) / (TYPES[it.type].val > 3 ? 1.5 : 1); if (d < bd) { bd = d; best = it; } } c.target = best; }
@@ -790,10 +791,10 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
       kickCd = Math.max(0, kickCd - dt);
       const tips = playerTips(), body = player.pos;
       for (const it of items) { if (!it.alive) continue; const ty = TYPES[it.type], dy = Math.abs(it.pos.y + ty.hover - body.y);
-        let hit = Math.hypot(it.pos.x - body.x, it.pos.z - body.z) < .85 && dy < 1.6; if (!hit) for (const tp of tips) if (tp.distanceTo(_b.set(it.pos.x, it.pos.y + ty.hover, it.pos.z)) < .7) { hit = true; break; } if (hit) collect(it, player); }
+        let hit = Math.hypot(it.pos.x - body.x, it.pos.z - body.z) < .85 && dy < 1.6; if (!hit) for (const tp of tips) if (tp.distanceTo(_b.set(it.pos.x, it.pos.y + ty.hover, it.pos.z)) < .45) { hit = true; break; } if (hit) collect(it, player); }
       checkZones(); if (flashT > 0) { flashT -= dt; if (flashT <= 0) flashMsg = ''; } drawHud();
     } else if (state === 'count') { countT -= dt; const n = Math.ceil(countT); if (n !== lastCount) { lastCount = n; if (n > 0) tone(midi(72), .25, 'sine', .12); msgPop.x = .14; msgPop.v = 0; } if (countT <= 0) { state = 'play'; sfx.start(); flashMsg = 'GO! Grab the shiny things'; flashT = 2.5; msg.m.visible = false; hud.m.visible = true; hud.key = ''; } else drawBig(String(n));
-    } else if (state === 'title') { msg.m.visible = true; drawMsg('Shiny Shell', ['Explore the deep. No timer, no rounds.', 'Push off rocks and the seabed to swim.', 'Grab treasure: it sticks to your shell.', inVR ? 'Left stick scuttles. A kicks upward.' : 'WASD scuttle · Space kick · C dive'], inVR ? 'Squeeze a trigger to begin' : 'Click or press Space to begin'); }
+    } else if (state === 'title') { msg.m.visible = true; drawMsg('Shiny Shell', ['Explore the deep. No timer, no rounds.', 'Push off rocks and the seabed to swim.', 'Grab treasure: it sticks to your shell.', inVR ? 'Your arms are your legs. A kicks up.' : 'WASD scuttle · Space kick · C dive'], inVR ? 'Squeeze a trigger to begin' : 'Click or press Space to begin'); }
     updateFlying(dt); updatePopups(dt); updateItems(t); updateSparks(dt); updateSnow(t); updateBubbles(t); updateFish(t); updateWhale(t); updateSwimmers(t); mixers.forEach(m => m.update(dt)); updateBigBubbles(dt); updateGlitter(t);
     jellies.forEach(j => { const p = Math.sin(t * 1.1 + j.ph); j.g.position.set(j.cx + Math.sin(t * .1 + j.ph) * 4, j.cy + Math.sin(t * .2 + j.ph) * 1.6, j.cz + Math.cos(t * .09 + j.ph) * 4); j.bell.scale.set(1 + p * .08, 1 - p * .12, 1 + p * .08); });
     pl[0].position.x = -10 + Math.sin(t * .3) * 4; pl[1].position.z = -20 + Math.cos(t * .25) * 5; pl[2].intensity = 2.6 + Math.sin(t * 2.1) * .5;
@@ -804,7 +805,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   const vrBtn = $('vrBtn'), deskBtn = $('deskBtn'), status = $('status'), panel = $('panel'), hint = $('hint');
   document.getElementById('musicBtn').textContent = 'Music: ' + (musicOn ? 'on' : 'off');
   document.getElementById('musicBtn').onclick = () => { startAudio(); setMusic(!musicOn); };
-  deskBtn.onclick = () => { startAudio(); fadeA = 1; deskOn = true; panel.hidden = true; hint.hidden = false; };
+  deskBtn.onclick = () => { startAudio(); fadeA = 1; deskOn = true; setFP(true); panel.hidden = true; hint.hidden = false; };
   (async () => {
     if (!navigator.xr) { status.textContent = 'This browser has no WebXR. Open the page in the Meta Quest Browser for VR.'; return; }
     try { if (!(await navigator.xr.isSessionSupported('immersive-vr'))) { status.textContent = 'VR is not available here. Open the page in the Meta Quest Browser.'; return; } }
