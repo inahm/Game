@@ -612,7 +612,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   function makePanel(w, h, pw, ph, rad) { const c = document.createElement('canvas'); c.width = pw; c.height = ph; const tex = new THREE.CanvasTexture(c);
     const m = new THREE.Mesh(arcGeo(w, h, rad), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, fog: false })); m.renderOrder = 999; camera.add(m); return { m, c, g: c.getContext('2d'), tex, key: '' }; }
   const hud = makePanel(.62, .1, 620, 100, 1.0), msg = makePanel(1.0, .7, 800, 560, 1.15), hudPop = new Spr(0, 200, 12), msgPop = new Spr(0, 160, 13); let lastHudScore = 0;
-  hud.m.position.set(0, .27, -1); msg.m.position.set(0, 0, -1.15); hud.m.visible = false; msg.m.visible = false;
+  hud.m.position.set(0, -.36, -1); hud.m.rotation.x = -.3; msg.m.position.set(0, 0, -1.15); hud.m.visible = false; msg.m.visible = false;
   const vignMat = new THREE.MeshBasicMaterial({ map: (() => { const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d'), gr = g.createRadialGradient(128, 128, 70, 128, 128, 128); gr.addColorStop(0, 'rgba(2,6,24,0)'); gr.addColorStop(1, 'rgba(2,6,24,.95)'); g.fillStyle = gr; g.fillRect(0, 0, 256, 256); return new THREE.CanvasTexture(c); })(), transparent: true, depthTest: false, depthWrite: false, fog: false, opacity: .25 });
   const vign = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), vignMat); vign.position.set(0, 0, -.3); vign.renderOrder = 998; camera.add(vign);
   const FONT = '"Fredoka", system-ui, sans-serif';
