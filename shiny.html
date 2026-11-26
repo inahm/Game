@@ -104,9 +104,10 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
     let h = (fbm(x * .035 + 7, z * .035) - .45) * 7 + (vnoise(x * .22, z * .22) - .5) * .45 + Math.sin(x * .9 + vnoise(x * .1, z * .1) * 6) * .06;
     h += 3.4 * Math.exp(-((x - HOARD.x) ** 2 + (z - HOARD.z) ** 2) / (2 * 6.5 * 6.5));
     h *= 1 - .65 * Math.exp(-((x - SPAWN.x) ** 2 + (z - SPAWN.z) ** 2) / (2 * 8 * 8));
+    { const wb = 1 - smooth(18, 29, Math.hypot(x - WRECK.x, z - WRECK.z)); h = h * (1 - wb) + WRECK_Y0 * wb; }   // level seabed around the sunken wreck so its hull sits on flat ground
     return h + smooth(46, 62, r) * 16;
   }
-  const WRECK = { x: -33, z: -30, yaw: .7, roll: .26, pitch: -.08 }, WRECK_E = new THREE.Euler(WRECK.pitch, WRECK.yaw, WRECK.roll, 'YXZ');
+  const WRECK_Y0 = -.3, WRECK = { x: -27, z: -22, yaw: -2.25, roll: .26, pitch: -.08 }, WRECK_E = new THREE.Euler(WRECK.pitch, WRECK.yaw, WRECK.roll, 'YXZ');
   const WRECK_P = V3(WRECK.x, [-12, -6, 0, 6, 12].reduce((a, k) => a + height(WRECK.x + Math.sin(WRECK.yaw) * k, WRECK.z + Math.cos(WRECK.yaw) * k), 0) / 5 - .6, WRECK.z);
   const wreckPt = (x, y, z) => V3(x, y, z).applyEuler(WRECK_E).add(WRECK_P);   // hull-local point -> world
   const srgb = new THREE.Color();
@@ -288,7 +289,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   const rocks = [];   // collision circles
   for (let i = 0; i < 34; i++) {
     const ring = i < 26, a = Math.random() * 6.283, r = ring ? rnd(50, 62) : rnd(14, 42), x = Math.cos(a) * r, z = Math.sin(a) * r;
-    if (!ring && (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 9 || Math.hypot(x - HOARD.x, z - HOARD.z) < 11)) continue;
+    if (!ring && (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 9 || Math.hypot(x - HOARD.x, z - HOARD.z) < 11 || Math.hypot(x - WRECK.x, z - WRECK.z) < 22)) continue;
     const s = ring ? rnd(7, 14) : rnd(2.8, 6.5), m = new THREE.Mesh(rockGeo(36, 24, .7, i * 5.3, .62 + Math.random() * .25), rockMat);
     m.scale.set(s * rnd(.9, 1.4), s * rnd(.7, 1.6), s * rnd(.9, 1.4)); m.position.set(x, height(x, z) + s * .25, z); m.rotation.y = Math.random() * 6; scene.add(m);
     if (!ring) { rocks.push({ x, z, r: s * .95, y: m.position.y, rx: m.scale.x * .95, ry: m.scale.y * .95, rz: m.scale.z * .95 }); aoSpots.push([x, z, s * 1.3]); }
@@ -306,7 +307,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   {   // tall kelp
     const spots = [];
     for (let tries = 0; tries < 4000 && spots.length < 150; tries++) { const x = rnd(-46, 46), z = rnd(-46, 46);
-      if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 12 || Math.hypot(x - HOARD.x, z - HOARD.z) < 5) continue; if (fbm(x * .06 + 3, z * .06) < .46) continue; spots.push([x, z]); }
+      if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 12 || Math.hypot(x - HOARD.x, z - HOARD.z) < 5 || Math.hypot(x - WRECK.x, z - WRECK.z) < 19) continue; if (fbm(x * .06 + 3, z * .06) < .46) continue; spots.push([x, z]); }
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .55, side: THREE.DoubleSide, envMapIntensity: .12, alphaTest: .5, alphaToCoverage: true }); patchPlant(mat, 1.5, 1.6, true);
     const im = new THREE.InstancedMesh(bladeGeo(16, .11), mat, spots.length * 6), d = new THREE.Object3D(); let n = 0;
     spots.forEach(([x, z], si) => { aoSpots.push([x, z, 2.6]); const base = kelpCol(si); for (let k = 0; k < 6; k++) { const px = x + rnd(-1.2, 1.2), pz = z + rnd(-1.2, 1.2), h = 4 + Math.pow(Math.random(), .8) * 12;
