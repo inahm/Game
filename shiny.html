@@ -11,9 +11,9 @@ html, body { height: 100%; }
 body { margin: 0; background: var(--deep); color: var(--ink); font-family: var(--font-body); overflow: hidden;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); box-sizing: border-box; }
 #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-#panel { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px;
+#panel { position: fixed; inset: 0; display: flex; overflow-y: auto; padding: 16px;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
-#card { max-width: 30rem; width: 100%; box-sizing: border-box; padding: 1.6rem 1.7rem; border-radius: 16px;
+#card { margin: auto; max-width: 30rem; width: 100%; box-sizing: border-box; padding: 1.6rem 1.7rem; border-radius: 16px;
   background: rgba(8, 8, 46, .78); backdrop-filter: blur(10px); border: 1px solid rgba(255, 63, 180, .45);
   box-shadow: 0 0 40px rgba(255, 63, 180, .25), 0 0 80px rgba(41, 232, 255, .15); }
 h1 { font: 600 clamp(2.4rem, 8vw, 3.6rem)/1 var(--font-display); margin: 0 0 .5rem; letter-spacing: .01em;
@@ -27,6 +27,13 @@ button { font: 600 1.05rem var(--font-display); border: 0; border-radius: 12px; 
 #deskBtn { background: transparent; color: var(--ink); border: 1px solid rgba(41, 232, 255, .55); }
 button:disabled { opacity: .45; cursor: not-allowed; }
 button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.mp { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin-top: 1rem; }
+.mp label { display: flex; flex-direction: column; gap: .25rem; font-size: .78rem; color: var(--muted); }
+.mp input { font: 500 1rem var(--font-body); padding: .6rem .7rem; border-radius: 10px; border: 1px solid rgba(41, 232, 255, .4); background: rgba(5, 8, 40, .7); color: var(--ink); min-width: 0; }
+.mp input:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
+#roomIn { text-transform: uppercase; }
+#joinBtn { background: linear-gradient(90deg, var(--cyan), var(--gold)); color: #0a1030; }
+#netStatus { font-size: .82rem; color: var(--muted); margin-top: .6rem; line-height: 1.4; min-height: 1.1em; }
 .credit { font-size: .75rem; margin-top: .6rem; opacity: .75; }
 #status { font-size: .85rem; margin-top: .9rem; min-height: 1.2em; color: var(--muted); }
 #hint { position: fixed; left: 0; right: 0; bottom: max(14px, env(safe-area-inset-bottom, 0px)); text-align: center; font-size: .85rem; color: rgba(190, 200, 255, .8); pointer-events: none; }
@@ -42,6 +49,14 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
       <li>Plant a claw on the seabed or a rock and push to swim. Paddle with closed claws to glide.</li>
       <li>VR: your arms are your legs. Plant a claw and push. Right stick turns, A kicks up. Click the right stick for music, the left stick to toggle stick walking.</li>
     </ul>
+    <div id="netBox">
+      <div class="mp">
+        <label>Your name <input id="nameIn" maxlength="12" autocomplete="off" spellcheck="false" placeholder="Crab"></label>
+        <label>Room code <input id="roomIn" maxlength="12" autocomplete="off" spellcheck="false" placeholder="e.g. REEF42"></label>
+      </div>
+      <div class="row"><button id="joinBtn" type="button">Join room</button></div>
+      <div id="netStatus" role="status">Play with friends: type the same room code, or leave it blank to play solo. In VR, use the computer near where you start.</div>
+    </div>
     <div class="row">
       <button id="vrBtn" disabled>Enter VR</button>
       <button id="deskBtn">Play on screen</button>
@@ -51,8 +66,9 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
     <p class="credit">Sea life models by Polyfork (polyfork.dev), CC BY 4.0, restyled for this game.</p>
   </div>
 </div>
-<div id="hint" hidden>WASD scuttle. Space kicks you upward, C dives. Drag to turn. V toggles first-person claws. M toggles music. Touch treasure to grab it.</div>
+<div id="hint" hidden>WASD scuttle. Space kicks you upward, C dives. Drag to turn. V toggles first-person claws. M toggles music. N opens the room panel. Touch treasure to grab it.</div>
 
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.152.2/examples/jsm/"}}</script>
 <script type="module">
 import * as THREE from 'three';
@@ -63,6 +79,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   await Promise.all(['reef-crab', 'shore-crab', 'jellyfish', 'octopus', 'sea-turtle', 'reef-fish', 'brain-coral', 'coral-pinnacle', 'lettuce-coral', 'table-coral', 'finger-coral', 'open-brain-coral', 'starfish']
     .map(n => new Promise(res => loader.load('models/' + n + '.json', g => { MODELS[n] = g; res(); }, undefined, () => res())))); }
 (() => {
+  const _rand0 = Math.random; { let a = 0x1badf00d; Math.random = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }   // the world is built from a fixed seed so every player sees the same seabed
   const $ = id => document.getElementById(id);
   const FOG_HEX = 0x030828;
   const rnd = (a, b) => a + Math.random() * (b - a);
@@ -492,14 +509,16 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   const glintPos = new Float32Array(NITEMS * 3), glintCol = new Float32Array(NITEMS * 3), glintGeo = new THREE.BufferGeometry();
   glintGeo.setAttribute('position', new THREE.BufferAttribute(glintPos, 3)); glintGeo.setAttribute('color', new THREE.BufferAttribute(glintCol, 3));
   { const gp = new THREE.Points(glintGeo, new THREE.PointsMaterial({ map: glowTex, size: 1.6, vertexColors: true, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })); gp.frustumCulled = false; scene.add(gp); }
+  const hrand = (a, b) => { const n = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return n - Math.floor(n); };   // deterministic, so every player agrees where treasure respawns
+  const respawnDelay = it => { const v = TYPES[it.type].val, h = hrand(it.idx, it.rc + 7); return v >= 25 ? 70 + h * 60 : 7 + h * 7; };
   function placeItem(it, nearHoard) {
-    for (let tries = 0; tries < 40; tries++) {
-      const a = Math.random() * 6.283, r = nearHoard ? Math.pow(Math.random(), .7) * 7 : rnd(4, 46);
-      const x = nearHoard ? HOARD.x + Math.cos(a) * r : Math.cos(a) * r * (Math.random() < .5 ? 1 : -1), z = nearHoard ? HOARD.z + Math.sin(a) * r : Math.sin(a) * r;
-      if (Math.hypot(x, z) > 50 || rocks.some(k => Math.hypot(x - k.x, z - k.z) < k.r + .5)) continue; it.pos.set(x, height(x, z) + (it.lift || 0), z); return; }
-    it.pos.set(rnd(-5, 5), height(0, 0), rnd(-5, 5));
+    for (let k = 0; k < 40; k++) {
+      const R = j => hrand(it.idx * 53 + k * 7 + j, it.rc * 13 + 3), a = R(1) * 6.283, r = nearHoard ? Math.pow(R(2), .7) * 7 : 4 + R(3) * 42;
+      const x = nearHoard ? HOARD.x + Math.cos(a) * r : Math.cos(a) * r * (R(4) < .5 ? 1 : -1), z = nearHoard ? HOARD.z + Math.sin(a) * r : Math.sin(a) * r;
+      if (Math.hypot(x, z) > 50 || rocks.some(q => Math.hypot(x - q.x, z - q.z) < q.r + .5)) continue; it.pos.set(x, height(x, z) + (it.lift || 0), z); return; }
+    it.pos.set(hrand(it.idx, 5) * 10 - 5, height(0, 0), hrand(it.idx, 6) * 10 - 5);
   }
-  for (let i = 0; i < NITEMS; i++) { const near = i < 8 ? (i >= 2 && i < 5) : i < 60, ty = i < 2 ? 10 : i < 5 ? 9 : i < 8 ? 8 : near ? (Math.random() < .55 ? 2 + Math.floor(Math.random() * 4) : pickType()) : pickType(), it = { type: ty, pos: V3(0, 0, 0), ph: Math.random() * 6.28, alive: true, back: 0, lift: i < 2 ? rnd(9, 14) : (i >= 60 && i < 105) ? rnd(2.5, 14) : 0, slot: worldIM[ty].count++ }; placeItem(it, near); items.push(it); }
+  for (let i = 0; i < NITEMS; i++) { const near = i < 8 ? (i >= 2 && i < 5) : i < 60, ty = i < 2 ? 10 : i < 5 ? 9 : i < 8 ? 8 : near ? (Math.random() < .55 ? 2 + Math.floor(Math.random() * 4) : pickType()) : pickType(), it = { type: ty, pos: V3(0, 0, 0), ph: Math.random() * 6.28, alive: true, back: 0, idx: i, rc: 0, lift: i < 2 ? rnd(9, 14) : (i >= 60 && i < 105) ? rnd(2.5, 14) : 0, slot: worldIM[ty].count++ }; placeItem(it, near); items.push(it); }
   const glintTint = [[1, .8, .3], [1, .7, .95], [1, .3, .5], [.3, 1, .6], [.3, .5, 1], [.8, .4, 1], [1, .7, .35], [1, .85, .4], [1.6, .5, 2.2], [1.4, 1.8, 2.2], [2.4, 1.9, .7]];
   const beamTint = { 8: [.7, .3, 1], 9: [.6, .9, 1], 10: [1, .8, .3] };
   const beams = items.filter(it => TYPES[it.type].val >= 25).map(it => { const c = beamTint[it.type];
@@ -509,7 +528,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   function updateItems(t) {
     beams.forEach(b => { b.m.visible = b.it.alive; b.m.position.set(b.it.pos.x, b.it.pos.y + 20, b.it.pos.z); });
     for (const it of items) {
-      if (!it.alive && t >= it.back) { placeItem(it, Math.random() < .3); it.alive = true; }
+      if (!it.alive && t >= it.back) { it.rc++; placeItem(it, hrand(it.idx, it.rc + 99) < .3); it.alive = true; }
       const ty = TYPES[it.type], bob = Math.sin(t * 1.4 + it.ph) * .1, y = it.pos.y + ty.hover + bob;
       tmpObj.position.set(it.pos.x, y, it.pos.z); tmpObj.rotation.set(0, t * .8 + it.ph, ty.name === 'hook' ? .4 : 0); tmpObj.scale.setScalar(it.alive ? 1 : 0); tmpObj.updateMatrix(); worldIM[it.type].setMatrixAt(it.slot, tmpObj.matrix);
       const gi = items.indexOf(it) * 3, tw = it.alive ? .55 + .45 * Math.sin(t * 3 + it.ph * 3) : 0, tint = glintTint[it.type];
@@ -609,7 +628,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   }
   const CRAB_MODEL = { You: 'reef-crab', Clawdia: 'reef-crab', Sheldon: 'shore-crab', Pinchy: 'shore-crab', Barnacle: 'reef-crab' };
   function makeCrab(name, hue, isPlayer) {
-    const g = MODELS[CRAB_MODEL[name]]; if (!g) return makeProcCrab(name, hue, isPlayer);
+    const g = MODELS[CRAB_MODEL[name] || 'reef-crab']; if (!g) return makeProcCrab(name, hue, isPlayer);
     const root = new THREE.Group(), wrap = new THREE.Group(), m = SkeletonUtils.clone(g.scene), box = posedBox(m), size = box.getSize(V3(0, 0, 0)), k = 1.45 / Math.max(size.x, size.z);
     m.scale.setScalar(k); m.position.y = -box.min.y * k; wrap.add(m); wrap.rotation.y = Math.PI; root.add(wrap);   // models face +z, our crabs face -z
     const tint = isPlayer ? new THREE.Color(1, 1, 1) : new THREE.Color().setHSL(hue, .55, .72), rimC = new THREE.Color().setHSL(hue, 1, .55).multiplyScalar(.55); let mat = null;
@@ -661,13 +680,13 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   let flashMsg = '', flashT = 0;
   function drawHud() {
     if (player.score !== lastHudScore) { lastHudScore = player.score; hudPop.v += 2.6; }
-    const tier = tierOf(player.score), next = TIERS[tier + 1], prog = next ? (player.score - TIERS[tier]) / (next - TIERS[tier]) : 1, depth = Math.max(0, Math.round(34 - player.pos.y)), key = tier + '|' + player.score + '|' + depth + '|' + flashMsg;
+    const tier = tierOf(player.score), next = TIERS[tier + 1], prog = next ? (player.score - TIERS[tier]) / (next - TIERS[tier]) : 1, depth = Math.max(0, Math.round(34 - player.pos.y)), key = tier + '|' + player.score + '|' + depth + '|' + flashMsg + '|' + roomLine();
     if (hud.key === key) return; hud.key = key;
     const g = hud.g, rr = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
     g.clearRect(0, 0, 620, 100); rr(10, 6, 600, 64, 32); g.fillStyle = 'rgba(6,10,40,.66)'; g.fill(); g.strokeStyle = 'rgba(130,225,255,.5)'; g.lineWidth = 2; g.stroke();
     rr(34, 58, 552, 6, 3); g.fillStyle = 'rgba(255,255,255,.14)'; g.fill(); rr(34, 58, Math.max(6, 552 * prog), 6, 3); const gr = g.createLinearGradient(34, 0, 586, 0); gr.addColorStop(0, '#29e8ff'); gr.addColorStop(1, '#ffcb3d'); g.fillStyle = gr; g.fill();
     fillText(g, TIER_NAMES[tier] + ' shell', 125, 36, 26, tier >= 6 ? '#ffe08a' : '#ffffff', tier >= 6 ? '#ffcb3d' : null); fillText(g, player.score + ' pts', 320, 36, 32, '#ffe08a', '#ffcb3d'); fillText(g, depth + ' m deep', 515, 36, 30, '#9fe8ff');
-    if (flashMsg) fillText(g, flashMsg, 310, 92, 26, '#ffe08a', '#ffcb3d'); hud.tex.needsUpdate = true; }
+    if (flashMsg || roomLine()) fillText(g, flashMsg || roomLine(), 310, 92, 26, flashMsg ? '#ffe08a' : '#9fe8ff', flashMsg ? '#ffcb3d' : null); hud.tex.needsUpdate = true; }
   function drawBig(t) { const key = 'big' + t; if (msg.key === key) return; msg.key = key; const g = msg.g; g.clearRect(0, 0, 800, 560); fillText(g, t, 400, 330, 300, '#ffffff', '#29e8ff'); msg.tex.needsUpdate = true; }
   function drawMsg(title, lines, foot) { const key = title + lines.join('|') + foot; if (msg.key === key) return; msg.key = key; const g = msg.g; g.clearRect(0, 0, 800, 560);
     g.fillStyle = 'rgba(8,8,46,.82)'; g.beginPath(); g.roundRect ? g.roundRect(10, 10, 780, 540, 28) : g.rect(10, 10, 780, 540); g.fill(); g.strokeStyle = 'rgba(255,63,180,.7)'; g.lineWidth = 4; g.stroke();
@@ -737,7 +756,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   function spawnPopup(pos, v) { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: popupTex(v), transparent: true, depthWrite: false, depthTest: false, fog: false })); sp.scale.set(.9, .45, 1); sp.position.copy(pos); sp.renderOrder = 900; scene.add(sp); popups.push({ sp, t: 0 }); }
   function updatePopups(dt) { for (let i = popups.length - 1; i >= 0; i--) { const p = popups[i]; p.t += dt; p.sp.position.y += dt * .8; { const k = Math.min(p.t / .28, 1), e = 1 + 2.70158 * Math.pow(k - 1, 3) + 1.70158 * Math.pow(k - 1, 2); p.sp.scale.set(.9 * e, .45 * e, 1); } p.sp.material.opacity = Math.max(0, 1 - Math.max(0, p.t - .5) / .6); if (p.t > 1.1) { scene.remove(p.sp); p.sp.material.dispose(); popups.splice(i, 1); } } }
   function collect(it, crab) {
-    const ty = TYPES[it.type]; it.alive = false; it.back = timeU.value + (ty.val >= 25 ? rnd(70, 130) : rnd(7, 14)); from = it.pos.clone().add(V3(0, ty.hover, 0));
+    const ty = TYPES[it.type]; it.alive = false; it.back = timeU.value + respawnDelay(it); NET.taken.set(it.idx, it.back); const from = it.pos.clone().add(V3(0, ty.hover, 0)); if (crab.isPlayer) netSend({ t: 'got', i: it.idx });
     burst(from, ty.mat.color.getHex() || 0xffffff, crab.isPlayer ? 26 : 14); const p = crab.shell.place(it.type);
     { const fm = new THREE.Mesh(ty.geo, ty.mat); fm.position.copy(from); flying.push({ mesh: fm, from, crab, p, t: 0 }); } scene.add(flying[flying.length - 1].mesh);
     crab.score += ty.val; crab.count++;
@@ -753,7 +772,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   function collideRocks(p) { for (const r of rocks) { const dx = p.x - r.x, dz = p.z - r.z, d = Math.hypot(dx, dz), m = r.r + .5; if (d < m && d > 1e-4) { p.x = r.x + dx / d * m; p.z = r.z + dz / d * m; } } const R = Math.hypot(p.x, p.z); if (R > BOUND) { p.x *= BOUND / R; p.z *= BOUND / R; } }
   let latSpeed = 0; const vel = V3(0, 0, 0), keys = {}; let firstPerson = false, yaw = 0, pitch = 0, dragging = false, deskOn = false, snapReady = true, clawPress = false;
   function setFP(on) { firstPerson = on; if (player.model) return; player.root.children.forEach(ch => { ch.visible = !on || player.arms.includes(ch); }); }
-  addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'KeyV' && deskOn) setFP(!firstPerson); if (e.code === 'Space') { e.preventDefault(); onPress(); kick(); } if (e.code === 'KeyC' && deskOn) mom.y = Math.min(mom.y, -1.4); if (e.code === 'KeyM') setMusic(!musicOn); }); addEventListener('keyup', e => { keys[e.code] = false; });
+  addEventListener('keydown', e => { if (e.target && e.target.tagName === 'INPUT') return; keys[e.code] = true; if (e.code === 'KeyV' && deskOn) setFP(!firstPerson); if (e.code === 'Space') { e.preventDefault(); onPress(); kick(); } if (e.code === 'KeyC' && deskOn) mom.y = Math.min(mom.y, -1.4); if (e.code === 'KeyM') setMusic(!musicOn); if (e.code === 'KeyN' && deskOn) toggleNetPanel(); }); addEventListener('keyup', e => { keys[e.code] = false; });
   canvas.addEventListener('pointerdown', e => { dragging = true; canvas.setPointerCapture(e.pointerId); onPress(); }); canvas.addEventListener('pointerup', () => { dragging = false; });
   canvas.addEventListener('pointermove', e => { if (!dragging || !deskOn) return; yaw -= e.movementX * .005; pitch = Math.max(-.5, Math.min(.6, pitch - e.movementY * .004)); });
   function onPress() { player.snap = .35; if (state === 'title' || state === 'over') startRound(); }
@@ -821,6 +840,132 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   let found = new Set(); try { found = new Set(JSON.parse(localStorage.getItem('shiny-found') || '[]')); } catch (_) {}
   function checkZones() { for (const z of ZONES) { if (found.has(z.n)) continue; const hit = z.y ? player.pos.y > z.y : Math.hypot(player.pos.x - z.x, player.pos.z - z.z) < z.r;
     if (hit) { found.add(z.n); try { localStorage.setItem('shiny-found', JSON.stringify([...found])); } catch (_) {} flashMsg = 'Discovered: ' + z.n + '  (' + found.size + '/' + ZONES.length + ')'; flashT = 3.5; sfx.win(); } } }
+  // ================= multiplayer: PeerJS star network, the first crab into a room hosts it =================
+  const NET = { state: 'off', attempt: 0, peer: null, hostConn: null, conns: new Map(), isHost: false, code: '', name: '', myId: '', taken: new Map(), sendT: 0, status: '' };
+  const remotes = new Map(), nameIn = $('nameIn'), roomIn = $('roomIn'), joinBtn = $('joinBtn'), netStatusEl = $('netStatus');
+  try { nameIn.value = localStorage.getItem('shiny-name') || ''; roomIn.value = (localStorage.getItem('shiny-room') || '').toUpperCase(); } catch (_) {}
+  const cleanCode = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12), cleanName = v => String(v || '').replace(/[^A-Za-z0-9 ]/g, '').trim().slice(0, 12);
+  const hueOf = str => { let h = 0; for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) % 360; return h / 360; };
+  const qs = new URLSearchParams(location.search), peerOpts = () => qs.get('peerHost') ? { host: qs.get('peerHost'), port: +qs.get('peerPort') || 9000, path: '/', secure: false, debug: 0 } : { debug: 0 };
+  function roomLine() { return NET.state === 'on' ? 'Room ' + NET.code.toUpperCase() + ' · ' + (remotes.size + 1) + (remotes.size ? ' crabs' : ' crab') : NET.state === 'connecting' ? 'Connecting…' : ''; }
+  function setNetStatus(t) { NET.status = t; netStatusEl.textContent = t; term.dirty = true; hud.key = ''; }
+  function broadcast(d, except) { for (const c of NET.conns.values()) if (c !== except && c.open) c.send(d); }
+  function netSend(msg) { if (NET.state !== 'on') return; if (NET.isHost) { msg.id = NET.myId; broadcast(msg, null); } else if (NET.hostConn && NET.hostConn.open) NET.hostConn.send(msg); }
+  function netLeave(silent) { NET.attempt++; try { NET.peer && NET.peer.destroy(); } catch (_) {} NET.peer = null; NET.hostConn = null; NET.conns.clear(); for (const r of [...remotes.values()]) removeRemote(r); NET.taken.clear(); NET.state = 'off'; NET.isHost = false; joinBtn.textContent = 'Join room'; if (!silent) setNetStatus('Left the room. You are playing solo.'); hud.key = ''; }
+  function netFail(e) { const why = { 'unavailable-id': 'room busy', 'peer-unavailable': 'host not found', timeout: 'timed out', network: 'network problem', 'server-error': 'server problem', 'socket-error': 'could not reach the matchmaking server', 'room-full': 'room is full' }[e && e.type] || (e && e.type) || 'error'; netLeave(true); setNetStatus('Could not join (' + why + '). Check the code and try again.'); }
+  function connected() { NET.state = 'on'; joinBtn.textContent = 'Leave room'; setNetStatus('Connected to room ' + NET.code.toUpperCase() + ' as ' + NET.name + (NET.isHost ? ' (host)' : '') + '.'); flashMsg = 'Joined room ' + NET.code.toUpperCase(); flashT = 3; sfx.start(); hud.key = ''; }
+  function netJoin(codeRaw, nameRaw) {
+    const code = cleanCode(codeRaw), name = cleanName(nameRaw) || 'Crab';
+    if (code.length < 3) { setNetStatus('Room code needs at least 3 letters or numbers.'); return; }
+    if (!window.Peer) { setNetStatus('Multiplayer could not load. Check your connection and reload.'); return; }
+    netLeave(true); NET.code = code; NET.name = name; NET.state = 'connecting'; joinBtn.textContent = 'Cancel'; setNetStatus('Connecting to room ' + code.toUpperCase() + '…');
+    try { localStorage.setItem('shiny-name', name); localStorage.setItem('shiny-room', code); } catch (_) {}
+    const hostId = 'shinyshell1-' + code, opts = peerOpts(), attempt = NET.attempt, hp = new window.Peer(hostId, opts); NET.peer = hp;
+    hp.on('open', () => { if (attempt !== NET.attempt) return; NET.isHost = true; NET.myId = hostId; connected(); });
+    hp.on('connection', c => hostAccept(c));
+    hp.on('error', e => { if (attempt !== NET.attempt) return; if (e.type === 'unavailable-id') { try { hp.destroy(); } catch (_) {} joinAsClient(hostId, opts, attempt); } else netFail(e); });
+  }
+  function joinAsClient(hostId, opts, attempt) {
+    const peer = new window.Peer(undefined, opts); NET.peer = peer; let opened = false;
+    peer.on('open', id => { if (attempt !== NET.attempt) return; NET.myId = id; const c = peer.connect(hostId, { reliable: true, serialization: 'json' }); NET.hostConn = c; const to = setTimeout(() => { if (!opened && attempt === NET.attempt) netFail({ type: 'timeout' }); }, 12000);
+      c.on('open', () => { opened = true; clearTimeout(to); NET.isHost = false; c.send({ t: 'hello', n: NET.name, h: hueOf(NET.name) }); connected(); });
+      c.on('data', d => clientData(d)); c.on('close', () => hostLost(attempt)); c.on('error', () => hostLost(attempt)); });
+    peer.on('error', e => { if (attempt !== NET.attempt) return; netFail(e); });
+  }
+  function hostLost(attempt) {   // the host left: everyone races to become the new host, the rest rejoin it
+    if (attempt !== NET.attempt || NET.state !== 'on') return; const code = NET.code, name = NET.name; setNetStatus('The host left. Reconnecting…'); netLeave(true); NET.state = 'connecting';
+    setTimeout(() => { if (NET.state === 'connecting') netJoin(code, name); }, 400 + Math.random() * 1800);
+  }
+  function hostAccept(c) {
+    if (NET.conns.size >= 7) { c.on('open', () => { c.send({ t: 'full' }); setTimeout(() => c.close(), 300); }); return; }
+    c.on('data', d => {
+      if (d.t === 'hello') { c.meta = { id: c.peer, n: cleanName(d.n) || 'Crab', h: d.h || 0 }; NET.conns.set(c.peer, c); addRemote(c.peer, c.meta.n, c.meta.h);
+        c.send({ t: 'welcome', hid: NET.myId, hn: NET.name, hh: hueOf(NET.name), peers: [...NET.conns.values()].filter(x => x !== c && x.meta).map(x => x.meta), items: snapshot() }); broadcast({ t: 'join', id: c.peer, n: c.meta.n, h: c.meta.h }, c); }
+      else if (d.t === 's') { d.id = c.peer; applyState(d); broadcast(d, c); } else if (d.t === 'got') { d.id = c.peer; remoteGot(d); broadcast(d, c); } });
+    c.on('close', () => { const r = remotes.get(c.peer); if (r) { flashMsg = r.name + ' left'; flashT = 2.5; removeRemote(r); } NET.conns.delete(c.peer); broadcast({ t: 'leave', id: c.peer }, null); });
+  }
+  function clientData(d) {
+    if (d.t === 'welcome') { addRemote(d.hid, d.hn, d.hh); (d.peers || []).forEach(q => addRemote(q.id, q.n, q.h)); applySnapshot(d.items || []); }
+    else if (d.t === 'join') { addRemote(d.id, d.n, d.h); } else if (d.t === 'leave') { const r = remotes.get(d.id); if (r) { flashMsg = r.name + ' left'; flashT = 2.5; removeRemote(r); } }
+    else if (d.t === 's') applyState(d); else if (d.t === 'got') remoteGot(d); else if (d.t === 'full') netFail({ type: 'room-full' });
+  }
+  function snapshot() { const out = []; for (const it of items) if (it.rc || !it.alive) out.push([it.idx, it.rc, it.alive ? 0 : Math.max(.5, it.back - timeU.value)]); return out; }
+  function applySnapshot(list) { for (const [i, rc, rem] of list) { const it = items[i]; if (!it) continue; it.rc = rc; if (rc) placeItem(it, hrand(it.idx, rc + 99) < .3); if (rem > 0) { it.alive = false; it.back = timeU.value + rem; } else it.alive = true; } }
+  function makeTag(name) { const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64; const g = cv.getContext('2d'); g.font = '600 34px ' + FONT; g.textAlign = 'center'; g.textBaseline = 'middle'; g.shadowColor = '#29e8ff'; g.shadowBlur = 12; g.fillStyle = '#fff'; g.fillText(name, 128, 34);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false, fog: false })); sp.scale.set(2.1, .52, 1); sp.position.set(0, 2.3, 0); return sp; }
+  function addRemote(id, name, hue) {
+    if (!id || remotes.has(id) || id === NET.myId) return; const c = makeCrab(name || 'Crab', hue || 0, false), tag = makeTag(name || 'Crab'); c.root.add(tag); c.pos.copy(SPAWN);
+    remotes.set(id, { id, name: name || 'Crab', crab: c, tag, tx: SPAWN.x, ty: 0, tz: SPAWN.z, tyaw: 0, sp: 0, v: 0, seen: false }); if (NET.state === 'on') { flashMsg = (name || 'Crab') + ' joined'; flashT = 2.5; sfx.start(); } hud.key = '';
+  }
+  function removeRemote(r) { scene.remove(r.crab.root); const i = crabs.indexOf(r.crab); if (i >= 0) crabs.splice(i, 1); const j = allShells.indexOf(r.crab.shell); if (j >= 0) allShells.splice(j, 1); remotes.delete(r.id); hud.key = ''; }
+  function applyState(d) { const r = remotes.get(d.id); if (!r) return; r.tx = d.x; r.ty = d.y; r.tz = d.z; r.tyaw = d.w; r.sp = d.sp; r.v = d.v; if (!r.seen) { r.seen = true; r.crab.pos.set(d.x, d.y, d.z); r.crab.root.rotation.y = d.w; } }
+  function remoteGot(d) { const r = remotes.get(d.id), it = items[d.i]; if (r && it && it.alive) collect(it, r.crab); }
+  function syncShell(c, v) { const sh = c.shell; let g = 0; while (sh.value < v && g++ < 25) { let ty, g2 = 0; do { ty = pickType(); } while (TYPES[ty].val > Math.max(2, v - sh.value) && ++g2 < 12); sh.put(sh.place(ty)); } sh.base = Math.min(3.2, 1 + sh.value * .0016); }
+  function updateRemote(r, dt) {
+    const c = r.crab, k = 1 - Math.exp(-dt * 12); c.pos.x += (r.tx - c.pos.x) * k; c.pos.y += (r.ty - c.pos.y) * k; c.pos.z += (r.tz - c.pos.z) * k;
+    const da = ((r.tyaw - c.root.rotation.y + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI; c.root.rotation.y += da * k; animateCrab(c, r.sp, dt, 0); syncShell(c, r.v);
+  }
+  function netTick(dt, sp) {
+    if (NET.state !== 'on') return; NET.sendT -= dt;
+    if (NET.sendT <= 0) { NET.sendT = .1; const dir = V3(0, 0, 0); (inVR ? renderer.xr.getCamera() : camera).getWorldDirection(dir);
+      netSend({ t: 's', x: +player.pos.x.toFixed(2), y: +player.pos.y.toFixed(2), z: +player.pos.z.toFixed(2), w: +Math.atan2(-dir.x, -dir.z).toFixed(2), sp: +sp.toFixed(2), v: player.score }); }
+    remotes.forEach(r => updateRemote(r, dt));
+  }
+  function autoJoin() { if (cleanCode(roomIn.value).length >= 3 && NET.state === 'off') netJoin(roomIn.value, nameIn.value); }
+  function toggleNetPanel() { panel.hidden = !panel.hidden; if (!panel.hidden) roomIn.focus(); }
+  joinBtn.onclick = () => { if (NET.state === 'off') netJoin(roomIn.value, nameIn.value); else { netLeave(false); } };
+  nameIn.addEventListener('input', () => { term.name = nameIn.value; term.dirty = true; }); roomIn.addEventListener('input', () => { term.room = roomIn.value.toUpperCase(); term.dirty = true; });
+
+  // ================= the computer near the start: type a name and room code by touching keys with a claw =================
+  const term = { name: nameIn.value, room: roomIn.value.toUpperCase(), field: 'room', dirty: true, kbDirty: true, flash: new Map(), prev: [-1, -1], blink: 0, bl: 0 };
+  const KB_W = 1024, KB_H = 360, KBW = .85, KBH = KBW * KB_H / KB_W, kbKeys = [];
+  { const rows = ['1234567890', 'QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'], kw = 88, kh = 60, gap = 8; let y = 12;
+    rows.forEach((row, ri) => { const rowW = row.length * (kw + gap) - gap + (ri === 2 ? kw + gap : 0); let x = (KB_W - rowW) / 2; for (const ch of row) { kbKeys.push({ label: ch, ch, x, y, w: kw, h: kh }); x += kw + gap; } if (ri === 2) kbKeys.push({ label: '⌫', act: 'back', x, y, w: kw, h: kh }); y += kh + gap; });
+    let x = 16; [['NAME', 'name', 150], ['ROOM', 'room', 150], ['SPACE', 'space', 320], ['JOIN', 'join', 170], ['LEAVE', 'leave', 170]].forEach(([label, act, w]) => { kbKeys.push({ label, act, x, y, w, h: kh }); x += w + gap; }); }
+  const mkCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+  const screenC = mkCanvas(512, 320), screenG = screenC.getContext('2d'), screenTex = new THREE.CanvasTexture(screenC), kbC = mkCanvas(KB_W, KB_H), kbG = kbC.getContext('2d'), kbTex = new THREE.CanvasTexture(kbC);
+  function rrect(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+  function drawScreen() {
+    const g = screenG; g.fillStyle = '#050a2a'; g.fillRect(0, 0, 512, 320); const gr = g.createLinearGradient(0, 0, 512, 0); gr.addColorStop(0, 'rgba(255,63,180,.25)'); gr.addColorStop(1, 'rgba(41,232,255,.25)'); g.fillStyle = gr; g.fillRect(0, 0, 512, 56);
+    g.textBaseline = 'middle'; g.textAlign = 'left'; g.font = '600 34px ' + FONT; g.fillStyle = '#ffe08a'; g.shadowColor = '#ffcb3d'; g.shadowBlur = 10; g.fillText('SHINY NET', 20, 30); g.shadowBlur = 0;
+    [['NAME', term.name, 'name', 84], ['ROOM', term.room, 'room', 152]].forEach(([lab, val, f, y]) => { const on = term.field === f; g.fillStyle = on ? 'rgba(41,232,255,.22)' : 'rgba(255,255,255,.07)'; rrect(g, 16, y, 480, 56, 12); g.fill(); g.strokeStyle = on ? '#29e8ff' : 'rgba(255,255,255,.2)'; g.lineWidth = on ? 3 : 1; g.stroke();
+      g.font = '500 22px ' + FONT; g.fillStyle = '#9fa8e8'; g.fillText(lab, 30, y + 28); g.font = '600 32px ' + FONT; g.fillStyle = '#fff'; g.fillText(val + (on && term.bl ? '_' : ''), 130, y + 29); });
+    g.font = '500 21px ' + FONT; g.fillStyle = NET.state === 'on' ? '#7dffb2' : NET.state === 'connecting' ? '#ffe08a' : '#cfd4ff';
+    const words = (NET.status || 'Touch the keys with a claw. Pick NAME or ROOM, type, then JOIN.').split(' '); let line = '', yy = 244; for (const w of words) { const t = line ? line + ' ' + w : w; if (g.measureText(t).width > 470 && line) { g.fillText(line, 20, yy); yy += 28; line = w; } else line = t; } g.fillText(line, 20, yy);
+    screenTex.needsUpdate = true; }
+  function drawKeyboard() {
+    const g = kbG; g.clearRect(0, 0, KB_W, KB_H); g.fillStyle = 'rgba(8,10,40,.94)'; rrect(g, 0, 0, KB_W, KB_H, 24); g.fill(); g.strokeStyle = 'rgba(41,232,255,.5)'; g.lineWidth = 4; g.stroke(); g.textAlign = 'center'; g.textBaseline = 'middle';
+    kbKeys.forEach((k, i) => { const hot = (term.flash.get(i) || 0) > 0, act = k.act === term.field, cls = k.act === 'join' ? ['#ffcb3d', '#7a5200'] : k.act === 'leave' ? ['#ff3fb4', '#6a0a44'] : k.act ? ['#29e8ff', '#0a4a66'] : ['#7f86d8', '#1a1f5a'];
+      g.fillStyle = hot ? '#ffffff' : act ? cls[0] : cls[1]; rrect(g, k.x, k.y, k.w, k.h, 12); g.fill(); g.strokeStyle = cls[0]; g.lineWidth = 3; g.stroke();
+      g.font = '600 ' + (k.label.length > 1 ? 26 : 34) + 'px ' + FONT; g.fillStyle = hot ? '#0a1030' : act ? '#07102a' : '#eef0ff'; g.fillText(k.label, k.x + k.w / 2, k.y + k.h / 2 + 2); });
+    kbTex.needsUpdate = true; }
+  const TX = 1.8, TZ = 20.6, termG = new THREE.Group(); termG.position.set(TX, height(TX, TZ), TZ); termG.rotation.y = Math.atan2(SPAWN.x - TX, SPAWN.z - TZ); scene.add(termG);
+  const termMat = new THREE.MeshStandardMaterial({ color: 0x14183a, roughness: .5, metalness: .4, emissive: 0x0a0c26, envMapIntensity: .6 });
+  { const add = (g, x, y, z) => { const m = new THREE.Mesh(g, termMat); m.position.set(x, y, z); termG.add(m); return m; };
+    add(new THREE.BoxGeometry(1, .08, .6), 0, .28, .05); add(new THREE.BoxGeometry(.08, .28, .5), -.42, .14, .05); add(new THREE.BoxGeometry(.08, .28, .5), .42, .14, .05); add(new THREE.BoxGeometry(.14, .3, .14), 0, .46, -.2); add(new THREE.BoxGeometry(1.0, .65, .08), 0, .85, -.2);
+    const scr = new THREE.Mesh(new THREE.PlaneGeometry(.92, .575), new THREE.MeshBasicMaterial({ map: screenTex, toneMapped: false })); scr.position.set(0, .85, -.155); termG.add(scr);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0x29e8ff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: .55, fog: false })); glow.scale.setScalar(2.6); glow.position.set(0, .85, -.05); termG.add(glow);
+    const light = new THREE.PointLight(0x29e8ff, 1.4, 5, 1.6); light.position.set(0, .9, .3); termG.add(light); }
+  const kbMesh = new THREE.Mesh(new THREE.PlaneGeometry(KBW, KBH), new THREE.MeshBasicMaterial({ map: kbTex, transparent: true, toneMapped: false })); kbMesh.position.set(0, .34, .16); kbMesh.rotation.x = -Math.PI / 2 + .3; termG.add(kbMesh);
+  function pressKey(k, i) {
+    term.flash.set(i, .18); term.kbDirty = true; tone(midi(84 + (i % 7)), .06, 'square', .035); haptic(.25, 25);
+    if (k.ch) { if (term.field === 'room') term.room = (term.room + k.ch).replace(/[^A-Z0-9]/g, '').slice(0, 12); else term.name = (term.name + k.ch).slice(0, 12); }
+    else if (k.act === 'back') { if (term.field === 'room') term.room = term.room.slice(0, -1); else term.name = term.name.slice(0, -1); }
+    else if (k.act === 'space') { if (term.field === 'name' && term.name.length < 12 && !term.name.endsWith(' ')) term.name += ' '; }
+    else if (k.act === 'name' || k.act === 'room') term.field = k.act;
+    else if (k.act === 'join') { netJoin(term.room, term.name); } else if (k.act === 'leave') { netLeave(false); }
+    nameIn.value = term.name; roomIn.value = term.room; term.dirty = true;
+  }
+  function termUpdate(dt, t) {
+    term.blink += dt; const bl = Math.floor(term.blink * 2) % 2; if (bl !== term.bl) { term.bl = bl; term.dirty = true; }
+    for (const [k, v] of term.flash) { if (v - dt <= 0) { term.flash.delete(k); term.kbDirty = true; } else term.flash.set(k, v - dt); }
+    if (term.dirty) { drawScreen(); term.dirty = false; } if (term.kbDirty) { drawKeyboard(); term.kbDirty = false; }
+    if (state !== 'play' || player.pos.distanceTo(termG.position) > 5) return;
+    kbMesh.updateWorldMatrix(true, false); const tips = playerTips();
+    for (let i = 0; i < 2; i++) { let hit = -1; const tp = tips[i]; if (tp) { const l = kbMesh.worldToLocal(tp.clone());
+        if (Math.abs(l.z) < .05) { const px = (l.x / KBW + .5) * KB_W, py = (.5 - l.y / KBH) * KB_H; hit = kbKeys.findIndex(k => px >= k.x && px <= k.x + k.w && py >= k.y && py <= k.y + k.h); } }
+      if (hit !== term.prev[i]) { term.prev[i] = hit; if (hit >= 0) pressKey(kbKeys[hit], hit); } }
+  }
   // ================= main loop =================
   const clock = new THREE.Clock(); let t = 0, lastLights = 0;
   function frame() {
@@ -829,7 +974,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
     if (inVR || deskOn) pSpeed = playerInput(dt);
     { const vt = (inVR ? .18 : .3) + Math.min(1, pSpeed / 1.4) * (inVR ? .6 : .25); vignMat.opacity += (vt - vignMat.opacity) * Math.min(1, dt * 5); if (inVR) vign.scale.set(1.7, 1.7, 1); else vign.scale.set(.5 * camera.aspect, .5, 1); }
     player.root.visible = !inVR && !(firstPerson && player.model); player.root.position.copy(player.pos); if (!inVR) player.root.rotation.y = yaw; rig.position.copy(player.pos); playerLight.position.set(player.pos.x, player.pos.y + 1.4, player.pos.z); if (!inVR) { if (firstPerson) { camera.position.set(0, .6, -.08); camera.rotation.x = -.16 + pitch * .8; } else { camera.position.set(0, DESK_CAM.y, DESK_CAM.z); camera.rotation.x = -.34 + pitch * .6; } }
-    NPC.forEach(c => { const s = npcThink(c, dt); animateCrab(c, s, dt, s * .8); }); animateCrab(player, pSpeed, dt, latSpeed); fpClaws.forEach(c => { c.group.visible = !inVR && firstPerson && !!player.model; c.go(player.snap > 0 ? .02 : .32, dt); });
+    NPC.forEach(c => { c.root.visible = NET.state !== 'on'; if (NET.state !== 'on') { const s = npcThink(c, dt); animateCrab(c, s, dt, s * .8); } }); animateCrab(player, pSpeed, dt, latSpeed); fpClaws.forEach(c => { c.group.visible = !inVR && firstPerson && !!player.model; c.go(player.snap > 0 ? .02 : .32, dt); });
     if (playing) {
       kickCd = Math.max(0, kickCd - dt);
       const tips = playerTips(), body = player.pos;
@@ -837,8 +982,8 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
         let hit = Math.hypot(it.pos.x - body.x, it.pos.z - body.z) < .85 && dy < 1.6; if (!hit) for (const tp of tips) if (tp.distanceTo(_b.set(it.pos.x, it.pos.y + ty.hover, it.pos.z)) < .45) { hit = true; break; } if (hit) collect(it, player); }
       checkZones(); if (flashT > 0) { flashT -= dt; if (flashT <= 0) flashMsg = ''; } drawHud();
     } else if (state === 'count') { countT -= dt; const n = Math.ceil(countT); if (n !== lastCount) { lastCount = n; if (n > 0) tone(midi(72), .25, 'sine', .12); msgPop.x = .14; msgPop.v = 0; } if (countT <= 0) { state = 'play'; sfx.start(); flashMsg = 'GO! Grab the shiny things'; flashT = 2.5; msg.m.visible = false; hud.m.visible = true; hud.key = ''; } else drawBig(String(n));
-    } else if (state === 'title') { msg.m.visible = true; drawMsg('Shiny Shell', ['Explore the deep. No timer, no rounds.', 'Push off rocks and the seabed to swim.', 'Grab treasure: it sticks to your shell.', inVR ? 'Your arms are your legs. A kicks up.' : 'WASD scuttle · Space kick · C dive'], inVR ? 'Squeeze a trigger to begin' : 'Click or press Space to begin'); }
-    updateFlying(dt); updatePopups(dt); updateItems(t); updateSparks(dt); updateSnow(t); updateBubbles(t); updateFish(t); updateWhale(t); updateSwimmers(t); mixers.forEach(m => m.update(dt)); updateBigBubbles(dt); updateGlitter(t);
+    } else if (state === 'title') { msg.m.visible = true; drawMsg('Shiny Shell', ['Explore the deep. No timer, no rounds.', 'Push off rocks and the seabed to swim.', 'Grab treasure: it sticks to your shell.', 'Computer on your right: join a room.', inVR ? 'Your arms are your legs. A kicks up.' : 'WASD scuttle · Space kick · C dive'], inVR ? 'Squeeze a trigger to begin' : 'Click or press Space to begin'); }
+    updateFlying(dt); updatePopups(dt); updateItems(t); updateSparks(dt); updateSnow(t); updateBubbles(t); updateFish(t); updateWhale(t); updateSwimmers(t); mixers.forEach(m => m.update(dt)); updateBigBubbles(dt); updateGlitter(t); netTick(dt, pSpeed); termUpdate(dt, t);
     jellies.forEach(j => { const p = Math.sin(t * 1.1 + j.ph); j.g.position.set(j.cx + Math.sin(t * .1 + j.ph) * 4, j.cy + Math.sin(t * .2 + j.ph) * 1.6, j.cz + Math.cos(t * .09 + j.ph) * 4); j.bell.scale.set(1 + p * .08, 1 - p * .12, 1 + p * .08); });
     pl[0].position.x = -10 + Math.sin(t * .3) * 4; pl[1].position.z = -20 + Math.cos(t * .25) * 5; pl[2].intensity = 2.6 + Math.sin(t * 2.1) * .5;
     renderer.render(scene, camera);
@@ -848,7 +993,7 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   const vrBtn = $('vrBtn'), deskBtn = $('deskBtn'), status = $('status'), panel = $('panel'), hint = $('hint');
   document.getElementById('musicBtn').textContent = 'Music: ' + (musicOn ? 'on' : 'off');
   document.getElementById('musicBtn').onclick = () => { startAudio(); setMusic(!musicOn); };
-  deskBtn.onclick = () => { startAudio(); fadeA = 1; deskOn = true; setFP(true); panel.hidden = true; hint.hidden = false; };
+  deskBtn.onclick = () => { startAudio(); fadeA = 1; deskOn = true; setFP(true); panel.hidden = true; hint.hidden = false; autoJoin(); };
   (async () => {
     if (!navigator.xr) { status.textContent = 'This browser has no WebXR. Open the page in the Meta Quest Browser for VR.'; return; }
     try { if (!(await navigator.xr.isSessionSupported('immersive-vr'))) { status.textContent = 'VR is not available here. Open the page in the Meta Quest Browser.'; return; } }
@@ -856,10 +1001,11 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
     status.textContent = 'VR ready.'; vrBtn.disabled = false;
     vrBtn.onclick = async () => { try {
       const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] });
-      startAudio(); fadeA = 1; inVR = true; deskOn = false; rig.scale.setScalar(.3); camera.position.set(0, 0, 0); camera.rotation.set(0, 0, 0); panel.hidden = true; hint.hidden = true; state = 'title'; msg.key = '';
+      startAudio(); fadeA = 1; inVR = true; deskOn = false; rig.scale.setScalar(.3); camera.position.set(0, 0, 0); camera.rotation.set(0, 0, 0); panel.hidden = true; hint.hidden = true; state = 'title'; msg.key = ''; autoJoin();
       session.addEventListener('end', () => { inVR = false; rig.scale.setScalar(1); rig.rotation.set(0, 0, 0); panel.hidden = false; resize(); });
       await renderer.xr.setSession(session); } catch (e) { status.textContent = 'Could not start VR: ' + e.message; } };
   })();
+  Math.random = _rand0;
   renderer.setAnimationLoop(frame);
 })();
 </script>
