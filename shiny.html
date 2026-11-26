@@ -511,15 +511,16 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
   class Shell {
     constructor(parent, scale, hue) {
       this.root = new THREE.Group(); this.root.scale.setScalar(scale); parent.add(this.root);
-      this.domeMat = new THREE.MeshPhysicalMaterial({ clearcoat: 1, clearcoatRoughness: .06, iridescence: .6, iridescenceIOR: 1.5, color: new THREE.Color().setHSL(hue, .8, .62), roughness: .15, metalness: .55, emissive: new THREE.Color().setHSL(hue, .95, .42), emissiveIntensity: .75, envMapIntensity: 1.6 });
+      this.hue = hue; this.domeMat = new THREE.MeshPhysicalMaterial({ color: new THREE.Color().setHSL(hue, .2, .32), roughness: .88, metalness: .04, clearcoat: 0, clearcoatRoughness: .5, iridescence: 0, iridescenceIOR: 1.5, emissive: new THREE.Color(0x000000), emissiveIntensity: 0, envMapIntensity: .15 });
       this.root.add(new THREE.Mesh(domeGeo, this.domeMat)); this.meshes = {}; this.n = 0; this.pop = new Spr(0, 170, 9); this.base = 1;
       { const N = 220, pos = new Float32Array(N * 3); this.gl = { N, seed: [], col: new Float32Array(N * 3) };
         for (let i = 0; i < N; i++) { const th = Math.random() * 6.283, ph = Math.acos(Math.random()) * .98; pos.set([.67 * Math.sin(ph) * Math.cos(th), .56 * Math.cos(ph), .59 * Math.sin(ph) * Math.sin(th)], i * 3); this.gl.seed.push(Math.random() * 6.28); }
         const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(this.gl.col, 3)); this.gl.geo = g;
+        g.setDrawRange(0, 0);
         this.root.add(Object.assign(new THREE.Points(g, new THREE.PointsMaterial({ map: glowTex, size: .085, vertexColors: true, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })), { frustumCulled: false }));
         const ring = new Float32Array(56 * 3); for (let i = 0; i < 56; i++) { const th = i / 56 * 6.283; ring.set([.67 * Math.cos(th), .025, .59 * Math.sin(th)], i * 3); }
         const rg = new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.BufferAttribute(ring, 3));
-        this.root.add(Object.assign(new THREE.Points(rg, new THREE.PointsMaterial({ map: glowTex, size: .08, color: new THREE.Color().setHSL((hue + .4) % 1, 1, .6), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })), { frustumCulled: false }));
+        this.ring = Object.assign(new THREE.Points(rg, new THREE.PointsMaterial({ map: glowTex, size: .08, color: new THREE.Color().setHSL((hue + .4) % 1, 1, .6), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })), { frustumCulled: false }); this.ring.visible = false; this.root.add(this.ring);
         allShells.push(this); }
     }
     place(ti) {
@@ -531,7 +532,13 @@ const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at 
     put(p) {
       let m = this.meshes[p.t]; if (!m) { m = new THREE.InstancedMesh(TYPES[p.t].geo, TYPES[p.t].mat, 140); m.count = 0; m.frustumCulled = false; this.root.add(m); this.meshes[p.t] = m; }
       if (m.count >= 140) return; _s.setScalar(p.s); _m4.compose(p.pos, p.quat, _s); m.setMatrixAt(m.count++, _m4); m.instanceMatrix.needsUpdate = true; this.n++;
-      this.domeMat.emissiveIntensity = .75 + Math.min(this.n, 90) * .01;
+      this.updateShine();
+    }
+    updateShine() {   // plain shell -> gleaming shell as it fills with treasure
+      const k = Math.pow(Math.min(1, this.n / 90), .8), m = this.domeMat, L = (a, b) => a + (b - a) * k, h = this.hue;
+      m.color.setHSL(h, L(.2, .8), L(.32, .62)); m.roughness = L(.88, .15); m.metalness = L(.04, .55); m.clearcoat = L(0, 1); m.clearcoatRoughness = L(.5, .06); m.iridescence = L(0, .6);
+      m.emissive.setHSL(h, .95, .42).multiplyScalar(k); m.emissiveIntensity = k * (.75 + Math.min(this.n, 90) * .01); m.envMapIntensity = L(.15, 1.6);
+      this.gl.geo.setDrawRange(0, Math.floor(this.gl.N * Math.pow(k, 1.3))); this.ring.visible = this.n >= 10;
     }
   }
   function updateGlitter(t) { for (const sh of allShells) { const g = sh.gl; for (let i = 0; i < g.N; i++) { const tw = Math.pow(Math.max(0, Math.sin(t * 3 + g.seed[i] * 7)), 6) * .9 + .1; g.col[i * 3] = .75 * tw; g.col[i * 3 + 1] = .95 * tw; g.col[i * 3 + 2] = tw; } g.geo.attributes.color.needsUpdate = true; } }
