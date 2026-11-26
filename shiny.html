@@ -34,11 +34,11 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 <div id="panel">
   <div id="card">
     <h1>Shiny Shell</h1>
-    <p>You are a crab in a glowing deep-sea lair. Grab shiny treasure and it sticks to your shell. Fill it before the other crabs do.</p>
+    <p>You are a crab in a glowing deep-sea world. Explore at your own pace, grab shiny treasure, and watch it stick to your shell.</p>
     <ul>
-      <li>Round lasts 3 minutes. Highest treasure score wins.</li>
-      <li>Gems, pearls, coins, starfish and rare golden hooks are worth more.</li>
-      <li>VR: left stick scuttles, right stick turns, claws grab. Squeeze to snap.</li>
+      <li>Free play: no timer, no rounds, no score to beat.</li>
+      <li>Plant a claw on the seabed or a rock and push to swim. Paddle with closed claws to glide.</li>
+      <li>VR: left stick scuttles, right stick turns, A kicks up. Touch treasure to grab it. Squeeze to snap.</li>
     </ul>
     <div class="row">
       <button id="vrBtn" disabled>Enter VR</button>
@@ -47,7 +47,7 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
     <div id="status" role="status">Checking for VR support…</div>
   </div>
 </div>
-<div id="hint" hidden>WASD scuttle, A and D go sideways. Drag to turn the view. Space snaps your claws. V toggles first-person claw view. Touch treasure to grab it.</div>
+<div id="hint" hidden>WASD scuttle. Space kicks you upward, C dives. Drag to turn. V toggles first-person claws. Touch treasure to grab it.</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.152.2/three.min.js"></script>
 <script>
@@ -241,7 +241,7 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
     if (!ring && (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 9 || Math.hypot(x - HOARD.x, z - HOARD.z) < 11)) continue;
     const s = ring ? rnd(7, 14) : rnd(2.8, 6.5), m = new THREE.Mesh(rockGeo(36, 24, .7, i * 5.3, .62 + Math.random() * .25), rockMat);
     m.scale.set(s * rnd(.9, 1.4), s * rnd(.7, 1.6), s * rnd(.9, 1.4)); m.position.set(x, height(x, z) + s * .25, z); m.rotation.y = Math.random() * 6; scene.add(m);
-    if (!ring) { rocks.push({ x, z, r: s * .95 }); aoSpots.push([x, z, s * 1.3]); }
+    if (!ring) { rocks.push({ x, z, r: s * .95, y: m.position.y, rx: m.scale.x * .95, ry: m.scale.y * .95, rz: m.scale.z * .95 }); aoSpots.push([x, z, s * 1.3]); }
   }
 
   // ================= seaweed forest, seagrass, anemones, coral =================
@@ -427,10 +427,10 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
     for (let tries = 0; tries < 40; tries++) {
       const a = Math.random() * 6.283, r = nearHoard ? Math.pow(Math.random(), .7) * 7 : rnd(4, 46);
       const x = nearHoard ? HOARD.x + Math.cos(a) * r : Math.cos(a) * r * (Math.random() < .5 ? 1 : -1), z = nearHoard ? HOARD.z + Math.sin(a) * r : Math.sin(a) * r;
-      if (Math.hypot(x, z) > 50 || rocks.some(k => Math.hypot(x - k.x, z - k.z) < k.r + .5)) continue; it.pos.set(x, height(x, z), z); return; }
+      if (Math.hypot(x, z) > 50 || rocks.some(k => Math.hypot(x - k.x, z - k.z) < k.r + .5)) continue; it.pos.set(x, height(x, z) + (it.lift || 0), z); return; }
     it.pos.set(rnd(-5, 5), height(0, 0), rnd(-5, 5));
   }
-  for (let i = 0; i < NITEMS; i++) { const near = i < 60, ty = near ? (Math.random() < .55 ? 2 + Math.floor(Math.random() * 4) : pickType()) : pickType(), it = { type: ty, pos: V3(0, 0, 0), ph: Math.random() * 6.28, alive: true, back: 0, slot: worldIM[ty].count++ }; placeItem(it, near); items.push(it); }
+  for (let i = 0; i < NITEMS; i++) { const near = i < 60, ty = near ? (Math.random() < .55 ? 2 + Math.floor(Math.random() * 4) : pickType()) : pickType(), it = { type: ty, pos: V3(0, 0, 0), ph: Math.random() * 6.28, alive: true, back: 0, lift: (i >= 60 && i < 105) ? rnd(2.5, 14) : 0, slot: worldIM[ty].count++ }; placeItem(it, near); items.push(it); }
   const glintTint = [[1, .8, .3], [1, .7, .95], [1, .3, .5], [.3, 1, .6], [.3, .5, 1], [.8, .4, 1], [1, .7, .35], [1, .85, .4]];
   function updateItems(t) {
     for (const it of items) {
@@ -483,7 +483,7 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
     { const palm = new THREE.Mesh(new THREE.SphereGeometry(.09, 12, 8), mat); palm.scale.set(1, .9, 1.2); g.add(palm); }
     const mk = s => { const piv = new THREE.Group(); piv.position.z = -.05; const m = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), mat); m.scale.set(.06, .042, .22); m.position.set(0, s * .04, -.16); piv.add(m);
       const tip = new THREE.Mesh(new THREE.ConeGeometry(.04, .14, 10), mat); tip.rotation.x = -Math.PI / 2 - s * .6; tip.position.set(0, s * .05, -.38); piv.add(tip); g.add(piv); return piv; };
-    const up = mk(1), lo = mk(-1), spr = new Spr(.3, 280, 17); return { group: g, set: o => { up.rotation.x = o; lo.rotation.x = -o; }, go: (target, dt) => { const o = spr.step(target, dt); up.rotation.x = o; lo.rotation.x = -o; } };
+    const up = mk(1), lo = mk(-1), spr = new Spr(.3, 280, 17); return { group: g, set: o => { up.rotation.x = o; lo.rotation.x = -o; }, go: (target, dt) => { const o = spr.step(target, dt); up.rotation.x = o; lo.rotation.x = -o; }, openNow: () => spr.x };
   }
   const crabs = [];
   function makeCrab(name, hue, isPlayer) {
@@ -536,11 +536,16 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   const FONT = '"Fredoka", system-ui, sans-serif';
   function fillText(g, t, x, y, size, color, glow) { g.font = '600 ' + size + 'px ' + FONT; g.textAlign = 'center'; g.shadowColor = glow || 'rgba(0,0,0,.6)'; g.shadowBlur = glow ? 18 : 6; g.fillStyle = color; g.fillText(t, x, y); }
   let flashMsg = '', flashT = 0;
-  function drawHud() { if (player.score !== lastHudScore) { lastHudScore = player.score; hudPop.v += 2.6; } const left = Math.max(0, Math.ceil(roundT)), rank = [...crabs].sort((a, b) => b.score - a.score).indexOf(player) + 1, key = left + '|' + player.score + '|' + rank + '|' + flashMsg; if (hud.key === key) return; hud.key = key;
+  const TIERS = [0, 10, 25, 50, 90, 140];
+  function drawHud() {
+    if (player.count !== lastHudScore) { lastHudScore = player.count; hudPop.v += 2.6; }
+    let tier = 0; while (tier + 1 < TIERS.length && player.count >= TIERS[tier + 1]) tier++;
+    const next = TIERS[tier + 1], prog = next ? (player.count - TIERS[tier]) / (next - TIERS[tier]) : 1, depth = Math.max(0, Math.round(34 - player.pos.y)), key = tier + '|' + player.count + '|' + depth + '|' + flashMsg;
+    if (hud.key === key) return; hud.key = key;
     const g = hud.g, rr = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
     g.clearRect(0, 0, 620, 100); rr(10, 6, 600, 64, 32); g.fillStyle = 'rgba(6,10,40,.66)'; g.fill(); g.strokeStyle = 'rgba(130,225,255,.5)'; g.lineWidth = 2; g.stroke();
-    rr(34, 58, 552, 6, 3); g.fillStyle = 'rgba(255,255,255,.14)'; g.fill(); rr(34, 58, Math.max(6, 552 * left / ROUND), 6, 3); const gr = g.createLinearGradient(34, 0, 586, 0); gr.addColorStop(0, '#29e8ff'); gr.addColorStop(1, '#ff3fb4'); g.fillStyle = gr; g.fill();
-    fillText(g, Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0'), 120, 36, 34, '#ffffff'); fillText(g, player.score + ' shiny', 310, 36, 34, '#ffe08a', '#ffcb3d'); fillText(g, '#' + rank, 505, 36, 34, rank === 1 ? '#ffe08a' : '#ffffff', rank === 1 ? '#ffcb3d' : null);
+    rr(34, 58, 552, 6, 3); g.fillStyle = 'rgba(255,255,255,.14)'; g.fill(); rr(34, 58, Math.max(6, 552 * prog), 6, 3); const gr = g.createLinearGradient(34, 0, 586, 0); gr.addColorStop(0, '#29e8ff'); gr.addColorStop(1, '#ffcb3d'); g.fillStyle = gr; g.fill();
+    fillText(g, 'Shell tier ' + (tier + 1), 120, 36, 30, '#ffffff'); fillText(g, player.count + ' treasures', 320, 36, 32, '#ffe08a', '#ffcb3d'); fillText(g, depth + ' m deep', 515, 36, 30, '#9fe8ff');
     if (flashMsg) fillText(g, flashMsg, 310, 92, 26, '#ffe08a', '#ffcb3d'); hud.tex.needsUpdate = true; }
   function drawBig(t) { const key = 'big' + t; if (msg.key === key) return; msg.key = key; const g = msg.g; g.clearRect(0, 0, 800, 560); fillText(g, t, 400, 330, 300, '#ffffff', '#29e8ff'); msg.tex.needsUpdate = true; }
   function drawMsg(title, lines, foot) { const key = title + lines.join('|') + foot; if (msg.key === key) return; msg.key = key; const g = msg.g; g.clearRect(0, 0, 800, 560);
@@ -579,7 +584,7 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
     burst(from, ty.mat.color.getHex() || 0xffffff, crab.isPlayer ? 26 : 14); const p = crab.shell.place(it.type);
     { const fm = new THREE.Mesh(ty.geo, ty.mat); fm.position.copy(from); flying.push({ mesh: fm, from, crab, p, t: 0 }); } scene.add(flying[flying.length - 1].mesh);
     crab.score += ty.val; crab.count++;
-    if (crab.isPlayer) { spawnPopup(from.clone().add(V3(0, .45, 0)), ty.val); sfx.grab(ty.val); haptic(.7, 70); crab.snap = .35; if ([10, 25, 50, 90].includes(crab.count)) { flashMsg = 'Shell tier up! ' + crab.count + ' treasures'; flashT = 2.8; sfx.win(); } }
+    if (crab.isPlayer) { spawnPopup(from.clone().add(V3(0, .45, 0)), ty.val); sfx.grab(ty.val); haptic(.7, 70); crab.snap = .35; if ([10, 25, 50, 90, 140].includes(crab.count)) { flashMsg = 'Shell tier up! ' + crab.count + ' treasures'; flashT = 2.8; sfx.win(); } }
   }
   function updateFlying(dt) { const target = V3(0, 0, 0); for (let i = flying.length - 1; i >= 0; i--) { const f = flying[i]; f.t += dt / .55; f.crab.shell.root.getWorldPosition(target); target.y += .3;
       const k = Math.min(f.t, 1), e = k * k * (3 - 2 * k); f.mesh.position.lerpVectors(f.from, target, e); f.mesh.position.y += Math.sin(k * Math.PI) * 1.1; f.mesh.rotation.y += dt * 10; f.mesh.scale.setScalar(1 - .6 * e);
@@ -587,32 +592,53 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   function collideRocks(p) { for (const r of rocks) { const dx = p.x - r.x, dz = p.z - r.z, d = Math.hypot(dx, dz), m = r.r + .5; if (d < m && d > 1e-4) { p.x = r.x + dx / d * m; p.z = r.z + dz / d * m; } } const R = Math.hypot(p.x, p.z); if (R > BOUND) { p.x *= BOUND / R; p.z *= BOUND / R; } }
   let latSpeed = 0; const vel = V3(0, 0, 0), keys = {}; let firstPerson = false, yaw = 0, pitch = 0, dragging = false, deskOn = false, snapReady = true, clawPress = false;
   function setFP(on) { firstPerson = on; player.root.children.forEach(ch => { ch.visible = !on || player.arms.includes(ch); }); }
-  addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'KeyV' && deskOn) setFP(!firstPerson); if (e.code === 'Space') { e.preventDefault(); onPress(); } }); addEventListener('keyup', e => { keys[e.code] = false; });
+  addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'KeyV' && deskOn) setFP(!firstPerson); if (e.code === 'Space') { e.preventDefault(); onPress(); kick(); } if (e.code === 'KeyC' && deskOn) mom.y = Math.min(mom.y, -1.4); }); addEventListener('keyup', e => { keys[e.code] = false; });
   canvas.addEventListener('pointerdown', e => { dragging = true; canvas.setPointerCapture(e.pointerId); onPress(); }); canvas.addEventListener('pointerup', () => { dragging = false; });
   canvas.addEventListener('pointermove', e => { if (!dragging || !deskOn) return; yaw -= e.movementX * .005; pitch = Math.max(-.5, Math.min(.6, pitch - e.movementY * .004)); });
   function onPress() { player.snap = .35; if (state === 'title' || state === 'over') startRound(); }
-  function startRound() { state = 'count'; countT = 3; lastCount = 4; roundT = ROUND; crabs.forEach(c => { c.score = 0; }); player.pos.copy(SPAWN); vel.set(0, 0, 0); flashMsg = ''; msg.m.visible = true; hud.m.visible = false; hud.key = ''; msg.key = ''; msgPop.x = -.14; msgPop.v = 0; }
+  function startRound() { state = 'play'; sfx.start(); flashMsg = 'Explore! Grab shiny things'; flashT = 3.5; msg.m.visible = false; hud.m.visible = true; hud.key = ''; }
   function endRound() { state = 'over'; const rank = [...crabs].sort((a, b) => b.score - a.score); sfx.win(); hud.m.visible = false; msg.m.visible = true; msgPop.x = -.14; msgPop.v = 0;
     drawMsg(rank[0] === player ? 'Shiniest crab!' : rank[0].name + ' wins', rank.map((c, i) => (i + 1) + '. ' + c.name + (c === player ? ' (you)' : '') + '  ' + c.score), inVR ? 'Squeeze a trigger to play again' : 'Click or press Space to play again'); }
   const fwdV = V3(0, 0, 0), sideV = V3(0, 0, 0);
+  const prevRel = [V3(0, 0, 0), V3(0, 0, 0)], hasPrev = [false, false], mom = V3(0, 0, 0), kickPrev = { left: false, right: false }; let kickCd = 0;
+  function tipContact(t) { if (t.y - height(t.x, t.z) < .2) return true; for (const r of rocks) { const qx = (t.x - r.x) / r.rx, qy = (t.y - r.y) / r.ry, qz = (t.z - r.z) / r.rz; if (qx * qx + qy * qy + qz * qz < 1.25) return true; } return false; }
+  function collideRocks3(p, m) { for (const r of rocks) { const qx = (p.x - r.x) / r.rx, qy = (p.y - r.y) / r.ry, qz = (p.z - r.z) / r.rz, d = Math.hypot(qx, qy, qz), lim = 1 + .35 / Math.min(r.rx, r.rz);
+      if (d < lim && d > 1e-4) { const k = lim / d; p.x = r.x + qx * k * r.rx; p.y = r.y + qy * k * r.ry; p.z = r.z + qz * k * r.rz; m.multiplyScalar(.6); } }
+    const R = Math.hypot(p.x, p.z); if (R > BOUND) { p.x *= BOUND / R; p.z *= BOUND / R; } }
+  function kick() { if (state !== 'play' || kickCd > 0) return; mom.y = Math.max(mom.y, 2.6); kickCd = .35; player.snap = .25; tone(midi(60), .18, 'sine', .08); }
+  function handLoco(dt) {   // claws planted on the seabed or a rock push you; closed claws paddle through open water
+    const push = V3(0, 0, 0); let planted = false;
+    ctrl.forEach((c, i) => {
+      if (!c.claw) { hasPrev[i] = false; return; }
+      c.obj.updateMatrixWorld(true); const tip = c.obj.localToWorld(V3(0, 0, -.55)), rel = tip.clone().sub(rig.position);
+      if (hasPrev[i]) { const d = rel.clone().sub(prevRel[i]), spd = d.length() / Math.max(dt, 1e-3);
+        if (tipContact(tip) && spd > .12 && spd < 6) { push.addScaledVector(d, -4.5); planted = true; }
+        else if (c.claw.openNow() < .15 && spd > .5 && spd < 6) mom.addScaledVector(d, -9); }
+      prevRel[i].copy(rel); hasPrev[i] = true; });
+    if (planted) { player.pos.add(push); mom.copy(push).multiplyScalar(.8 / Math.max(dt, 1e-3)); if (mom.length() > 4.5) mom.setLength(4.5); }
+  }
   function playerInput(dt) {
     let f = 0, s = 0;
     if (inVR) { const session = renderer.xr.getSession(); if (session) { renderer.xr.getCamera().getWorldDirection(fwdV); fwdV.y = 0; fwdV.normalize(); sideV.set(-fwdV.z, 0, fwdV.x);
         let pressed = false; for (const src of session.inputSources) { const gp = src.gamepad; if (!gp) continue; const ax = gp.axes.length >= 4 ? gp.axes[2] : gp.axes[0], ay = gp.axes.length >= 4 ? gp.axes[3] : gp.axes[1];
+          { const ab = gp.buttons[4] && gp.buttons[4].pressed; if (ab && !kickPrev[src.handedness]) kick(); kickPrev[src.handedness] = ab; if (gp.buttons[5] && gp.buttons[5].pressed) mom.y -= 3 * dt; }
           if (gp.buttons[0] && gp.buttons[0].pressed || gp.buttons[1] && gp.buttons[1].pressed) pressed = true;
-          if (src.handedness === 'left') { if (Math.hypot(ax, ay) > .15) { f = -ay; s = ax; } } else if (src.handedness === 'right') { if (Math.abs(ax) > .7 && snapReady) { rig.rotation.y -= Math.sign(ax) * Math.PI / 4; snapReady = false; } if (Math.abs(ax) < .3) snapReady = true; } }
+          if (src.handedness === 'left') { if (Math.hypot(ax, ay) > .15) { f = -ay; s = ax; } } else if (src.handedness === 'right') { if (Math.abs(ax) > .7 && snapReady) { rig.rotation.y -= Math.sign(ax) * Math.PI / 4; snapReady = false; hasPrev[0] = hasPrev[1] = false; } if (Math.abs(ax) < .3) snapReady = true; } }
         if (pressed && !clawPress) onPress(); clawPress = pressed; ctrl.forEach(c => { if (c.claw) { const gp = c.src && c.src.gamepad, v = gp ? Math.max(gp.buttons[0] ? gp.buttons[0].value : 0, gp.buttons[1] ? gp.buttons[1].value : 0) : 0, target = .38 - v * .36 + Math.sin(timeU.value * 3 + c.hand) * .02 * (1 - v); c.claw.go(target, dt); } }); } }
     else if (deskOn) { rig.rotation.y = yaw; fwdV.set(-Math.sin(yaw), 0, -Math.cos(yaw)); sideV.set(-fwdV.z, 0, fwdV.x); f = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0); s = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0); }
+    if (inVR) handLoco(dt);
     const sp = (keys.ShiftLeft ? 2.1 : 1.35); const tx_ = (fwdV.x * f + sideV.x * s) * sp, tz_ = (fwdV.z * f + sideV.z * s) * sp; vel.x += (tx_ - vel.x) * Math.min(1, dt * 4); vel.z += (tz_ - vel.z) * Math.min(1, dt * 4);
-    player.pos.x += vel.x * dt; player.pos.z += vel.z * dt; collideRocks(player.pos); player.pos.y = height(player.pos.x, player.pos.z);
-    latSpeed = vel.x * sideV.x + vel.z * sideV.z; return Math.hypot(vel.x, vel.z);
+    mom.y -= .9 * dt; mom.multiplyScalar(Math.exp(-dt * 1.1)); { const g0 = height(player.pos.x, player.pos.z); if (player.pos.y <= g0 + .03) { mom.x *= Math.exp(-dt * 5); mom.z *= Math.exp(-dt * 5); if (mom.y < 0) mom.y = 0; } }
+    player.pos.x += (vel.x + mom.x) * dt; player.pos.z += (vel.z + mom.z) * dt; player.pos.y += mom.y * dt; collideRocks3(player.pos, mom);
+    { const g1 = height(player.pos.x, player.pos.z); if (player.pos.y < g1) player.pos.y = g1; else if (player.pos.y - g1 < .12 && mom.y <= .05) player.pos.y = g1; if (player.pos.y > 30) { player.pos.y = 30; mom.y = Math.min(mom.y, 0); } }
+    latSpeed = (vel.x + mom.x) * sideV.x + (vel.z + mom.z) * sideV.z; return Math.hypot(vel.x + mom.x, vel.z + mom.z);
   }
   const tipV = V3(0, 0, 0);
   function playerTips() { const tips = [];
     if (inVR) ctrl.forEach(c => { if (c.claw) { c.obj.updateMatrixWorld(true); tips.push(c.obj.localToWorld(V3(0, 0, -.55))); } });
     else player.claws.forEach(c => { c.group.updateWorldMatrix(true, false); tips.push(c.group.localToWorld(V3(0, 0, -.55))); }); return tips; }
   function npcThink(c, dt) {
-    c.tt -= dt; if (c.tt <= 0 || !c.target || !c.target.alive) { c.tt = rnd(.8, 1.6); let best = null, bd = 1e9; for (const it of items) { if (!it.alive) continue; const d = Math.hypot(it.pos.x - c.pos.x, it.pos.z - c.pos.z) * (1 + Math.random() * .35) / (TYPES[it.type].val > 3 ? 1.5 : 1); if (d < bd) { bd = d; best = it; } } c.target = best; }
+    c.tt -= dt; if (c.tt <= 0 || !c.target || !c.target.alive) { c.tt = rnd(.8, 1.6); let best = null, bd = 1e9; for (const it of items) { if (!it.alive || it.lift) continue; const d = Math.hypot(it.pos.x - c.pos.x, it.pos.z - c.pos.z) * (1 + Math.random() * .35) / (TYPES[it.type].val > 3 ? 1.5 : 1); if (d < bd) { bd = d; best = it; } } c.target = best; }
     const t = c.target ? c.target.pos : c.wander; if (!c.target && Math.hypot(t.x - c.pos.x, t.z - c.pos.z) < 2) c.wander.set(rnd(-35, 35), 0, rnd(-35, 35));
     const dx = t.x - c.pos.x, dz = t.z - c.pos.z, d = Math.hypot(dx, dz) || 1, sp = state === 'play' ? 1.25 : .6;
     c.spv = (c.spv || 0) + ((d > .4 ? sp : 0) - (c.spv || 0)) * (1 - Math.exp(-dt * 4));
@@ -626,6 +652,10 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
     c.snap = Math.max(0, c.snap - dt); const open = c.snap > 0 ? .02 : .32 + Math.sin(c.phase * .7) * .08; c.claws.forEach(cl => cl.go(open, dt)); const lean = c.leanS.step(-lat * .12, dt); c.root.children[0].rotation.z = lean; c.shell.root.rotation.z = lean * .6;
     c.root.children[0].position.y = .27 + Math.sin(c.phase * 3.2) * .01 * Math.min(1, speed); c.shell.root.scale.setScalar(c.shell.base * (1 + c.shell.pop.step(0, dt) * .1)); }
 
+  const ZONES = [{ n: 'Treasure Hoard', x: HOARD.x, z: HOARD.z, r: 10 }, { n: 'Jellyfish Garden', x: 2, z: 12, r: 11 }, { n: 'Kelp Forest', x: -26, z: -12, r: 14 }, { n: 'Coral Gardens', x: 26, z: -22, r: 13 }, { n: 'Pebble Flats', x: 28, z: 14, r: 12 }, { n: 'The Surface', y: 24 }];
+  let found = new Set(); try { found = new Set(JSON.parse(localStorage.getItem('shiny-found') || '[]')); } catch (_) {}
+  function checkZones() { for (const z of ZONES) { if (found.has(z.n)) continue; const hit = z.y ? player.pos.y > z.y : Math.hypot(player.pos.x - z.x, player.pos.z - z.z) < z.r;
+    if (hit) { found.add(z.n); try { localStorage.setItem('shiny-found', JSON.stringify([...found])); } catch (_) {} flashMsg = 'Discovered: ' + z.n + '  (' + found.size + '/' + ZONES.length + ')'; flashT = 3.5; sfx.win(); } } }
   // ================= main loop =================
   const clock = new THREE.Clock(); let t = 0, lastLights = 0;
   function frame() {
@@ -636,13 +666,13 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
     player.root.visible = !inVR; player.root.position.copy(player.pos); if (!inVR) player.root.rotation.y = yaw; rig.position.copy(player.pos); playerLight.position.set(player.pos.x, player.pos.y + 1.4, player.pos.z); if (!inVR) { if (firstPerson) { camera.position.set(0, .6, -.08); camera.rotation.x = -.16 + pitch * .8; } else { camera.position.set(0, DESK_CAM.y, DESK_CAM.z); camera.rotation.x = -.34 + pitch * .6; } }
     NPC.forEach(c => { const s = npcThink(c, dt); animateCrab(c, s, dt, s * .8); }); animateCrab(player, pSpeed, dt, latSpeed);
     if (playing) {
-      roundT -= dt; if (roundT <= 0) endRound();
+      kickCd = Math.max(0, kickCd - dt);
       const tips = playerTips(), body = player.pos;
       for (const it of items) { if (!it.alive) continue; const ty = TYPES[it.type], dy = Math.abs(it.pos.y + ty.hover - body.y);
         let hit = Math.hypot(it.pos.x - body.x, it.pos.z - body.z) < .85 && dy < 1.6; if (!hit) for (const tp of tips) if (tp.distanceTo(_b.set(it.pos.x, it.pos.y + ty.hover, it.pos.z)) < .7) { hit = true; break; } if (hit) collect(it, player); }
-      if (flashT > 0) { flashT -= dt; if (flashT <= 0) flashMsg = ''; } drawHud();
+      checkZones(); if (flashT > 0) { flashT -= dt; if (flashT <= 0) flashMsg = ''; } drawHud();
     } else if (state === 'count') { countT -= dt; const n = Math.ceil(countT); if (n !== lastCount) { lastCount = n; if (n > 0) tone(midi(72), .25, 'sine', .12); msgPop.x = .14; msgPop.v = 0; } if (countT <= 0) { state = 'play'; sfx.start(); flashMsg = 'GO! Grab the shiny things'; flashT = 2.5; msg.m.visible = false; hud.m.visible = true; hud.key = ''; } else drawBig(String(n));
-    } else if (state === 'title') { msg.m.visible = true; drawMsg('Shiny Shell', ['Grab shiny treasure with your claws.', 'It sticks to your shell. Out-collect the other crabs!', inVR ? 'Left stick scuttle · Right stick turn' : 'WASD scuttle · drag to turn'], inVR ? 'Squeeze a trigger to start' : 'Click or press Space to start'); }
+    } else if (state === 'title') { msg.m.visible = true; drawMsg('Shiny Shell', ['Explore the deep. No timer, no rounds.', 'Push off rocks and the seabed to swim.', 'Grab treasure: it sticks to your shell.', inVR ? 'Left stick scuttles. A kicks upward.' : 'WASD scuttle · Space kick · C dive'], inVR ? 'Squeeze a trigger to begin' : 'Click or press Space to begin'); }
     updateFlying(dt); updatePopups(dt); updateItems(t); updateSparks(dt); updateSnow(t); updateBubbles(t); updateFish(t); updateWhale(t); updateBigBubbles(dt); updateGlitter(t);
     jellies.forEach(j => { const p = Math.sin(t * 1.1 + j.ph); j.g.position.set(j.cx + Math.sin(t * .1 + j.ph) * 4, j.cy + Math.sin(t * .2 + j.ph) * 1.6, j.cz + Math.cos(t * .09 + j.ph) * 4); j.bell.scale.set(1 + p * .08, 1 - p * .12, 1 + p * .08); });
     pl[0].position.x = -10 + Math.sin(t * .3) * 4; pl[1].position.z = -20 + Math.cos(t * .25) * 5; pl[2].intensity = 2.6 + Math.sin(t * 2.1) * .5;
