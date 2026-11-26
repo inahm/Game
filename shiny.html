@@ -104,6 +104,7 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   const camera = new THREE.PerspectiveCamera(74, 1, .03, 400);
   const rig = new THREE.Group(); rig.add(camera); scene.add(rig); rig.position.copy(SPAWN);
   const DESK_CAM = { y: 1.25, z: 2.3 };
+  let fadeA = 1; const fadeMat = new THREE.MeshBasicMaterial({ color: 0x010414, side: THREE.BackSide, transparent: true, opacity: 1, depthTest: false, depthWrite: false, fog: false }), fadeMesh = new THREE.Mesh(new THREE.SphereGeometry(.2, 12, 8), fadeMat); fadeMesh.renderOrder = 1000; camera.add(fadeMesh);
   function resize() { if (renderer.xr.isPresenting) return; renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
   addEventListener('resize', resize); resize();
 
@@ -152,14 +153,15 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
     gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.3, 'rgba(255,255,255,.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c); })();
 
   // ---------- shader patches: caustics, glow from vertex colours, seaweed sway ----------
+  const NOISE3 = `float h3(vec3 p){ return fract(sin(dot(p, vec3(127.1,311.7,74.7)))*43758.5453); } float nz(vec3 p){ vec3 i=floor(p), f=fract(p); f=f*f*(3.-2.*f); return mix(mix(mix(h3(i),h3(i+vec3(1,0,0)),f.x), mix(h3(i+vec3(0,1,0)),h3(i+vec3(1,1,0)),f.x), f.y), mix(mix(h3(i+vec3(0,0,1)),h3(i+vec3(1,0,1)),f.x), mix(h3(i+vec3(0,1,1)),h3(i+vec3(1,1,1)),f.x), f.y), f.z); }`;
   const CAUS = `float caus(vec2 p, float t){ vec2 q = p; float a = sin(q.x*3.+t*.8+sin(q.y*2.+t*.5)*1.5), b = sin(q.y*3.2-t*.7+sin(q.x*2.3-t*.4)*1.5), c = sin((q.x+q.y)*2.5+t*.6); return pow(1.-abs((a+b+c)/3.), 6.); }`;
-  function patchWorld(mat, glow) {
+  function patchWorld(mat, glow, rock) {
     mat.onBeforeCompile = sh => {
       sh.uniforms.uTime = timeU;
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime; varying vec3 vWP;' + (glow ? 'attribute vec3 aGlow; varying vec3 vGlow;' : ''))
         .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.)).xyz;' + (glow ? 'vGlow = aGlow;' : ''));
-      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uTime; varying vec3 vWP;' + (glow ? 'varying vec3 vGlow;' : '') + CAUS)
-        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(.1,.38,.6) * caus(vWP.xz*.6, uTime) * .6;' + (glow ? 'totalEmissiveRadiance += vGlow;' : ''));
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uTime; varying vec3 vWP;' + (glow ? 'varying vec3 vGlow;' : '') + CAUS + NOISE3)
+        .replace('#include <map_fragment>', '#include <map_fragment>\n' + (rock ? 'diffuseColor.rgb *= .6 + .8 * nz(vWP*.8) * (.6 + .6*nz(vWP*3.3));' : '')).replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(.1,.38,.6) * caus(vWP.xz*.6, uTime) * .6;' + (glow ? 'totalEmissiveRadiance += vGlow;' : ''));
     };
   }
   function patchPlant(mat, amp, k) {
@@ -208,8 +210,8 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
       srgb.setHSL((hue + .25 + n * .3) % 1, 1, .55); gl[i * 3] = srgb.r * vein; gl[i * 3 + 1] = srgb.g * vein; gl[i * 3 + 2] = srgb.b * vein; }
     g.setAttribute('color', new THREE.BufferAttribute(c, 3)); g.setAttribute('aGlow', new THREE.BufferAttribute(gl, 3)); return g;
   }
-  const rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .85, map: tx(TEX.rock.alb, 3, 3), normalMap: tx(TEX.rock.nrm, 3, 3), normalScale: new THREE.Vector2(.9, .9), envMapIntensity: .08 });
-  patchWorld(rockMat, true);
+  const rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .85, envMapIntensity: .08 });
+  patchWorld(rockMat, true, true);
   const rocks = [];   // collision circles
   for (let i = 0; i < 34; i++) {
     const ring = i < 26, a = Math.random() * 6.283, r = ring ? rnd(50, 62) : rnd(14, 42), x = Math.cos(a) * r, z = Math.sin(a) * r;
@@ -220,19 +222,20 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   }
 
   // ================= seaweed forest, seagrass, anemones, coral =================
-  function bladeGeo(segs, width) {
+  function bladeGeo(segs, width) {   // ribbon with a raised, brighter midrib
     const pos = [], col = [], idx = [];
-    for (let i = 0; i <= segs; i++) { const y = i / segs, w = width * (1 - y * .72) * (1 + .18 * Math.sin(y * 9)), k = .12 + .88 * y;
-      pos.push(-w, y, 0, w, y, 0); col.push(k, k, k, k, k, k); if (i < segs) { const b = i * 2; idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2); } }
+    for (let i = 0; i <= segs; i++) { const y = i / segs, w = width * (1 - y * .8) * (1 + .12 * Math.sin(y * 7)), k = .1 + .9 * Math.pow(y, 1.3);
+      pos.push(-w, y, 0, 0, y, w * .35, w, y, 0); col.push(k * .8, k * .8, k * .8, k * 1.35, k * 1.35, k * 1.35, k * .8, k * .8, k * .8);
+      if (i < segs) { const b = i * 3; idx.push(b, b + 1, b + 3, b + 1, b + 4, b + 3, b + 1, b + 2, b + 4, b + 2, b + 5, b + 4); } }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx); g.computeVertexNormals(); return g;
   }
-  const neon = [.95, .02, .78, .5, .58, .88, .08], neonCol = (i) => new THREE.Color().setHSL(neon[i % neon.length] + rnd(-.03, .03), .95, .55), kelpCol = i => new THREE.Color().setHSL([.5, .88, .33, .76, .55][i % 5] + rnd(-.03, .03), .95, .5);
+  const neon = [.95, .02, .78, .5, .58, .88, .08], neonCol = (i) => new THREE.Color().setHSL(neon[i % neon.length] + rnd(-.03, .03), .95, .55), kelpCol = i => new THREE.Color().setHSL([.5, .55, .62, .78, .88][i % 5] + rnd(-.03, .03), .85, .5);
   {   // tall kelp
     const spots = [];
     for (let tries = 0; tries < 4000 && spots.length < 150; tries++) { const x = rnd(-46, 46), z = rnd(-46, 46);
-      if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 7 || Math.hypot(x - HOARD.x, z - HOARD.z) < 5) continue; if (fbm(x * .06 + 3, z * .06) < .46) continue; spots.push([x, z]); }
+      if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 12 || Math.hypot(x - HOARD.x, z - HOARD.z) < 5) continue; if (fbm(x * .06 + 3, z * .06) < .46) continue; spots.push([x, z]); }
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .55, side: THREE.DoubleSide, envMapIntensity: .12 }); patchPlant(mat, 1.5, 1.6);
-    const im = new THREE.InstancedMesh(bladeGeo(10, .13), mat, spots.length * 6), d = new THREE.Object3D(); let n = 0;
+    const im = new THREE.InstancedMesh(bladeGeo(16, .11), mat, spots.length * 6), d = new THREE.Object3D(); let n = 0;
     spots.forEach(([x, z], si) => { const base = kelpCol(si); for (let k = 0; k < 6; k++) { const px = x + rnd(-1.2, 1.2), pz = z + rnd(-1.2, 1.2), h = rnd(6, 14);
       d.position.set(px, height(px, pz) - .1, pz); d.rotation.set(0, Math.random() * 6.28, 0); d.scale.set(rnd(1.1, 2), h, 1); d.updateMatrix(); im.setMatrixAt(n, d.matrix); im.setColorAt(n++, base.clone().offsetHSL(rnd(-.04, .04), 0, rnd(-.05, .05))); } });
     im.frustumCulled = false; scene.add(im);
@@ -240,7 +243,7 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   {   // seagrass carpet
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .6, side: THREE.DoubleSide }); patchPlant(mat, .5, 1.2);
     const pts = []; for (let tries = 0; tries < 30000 && pts.length < 3500; tries++) { const x = rnd(-40, 40), z = rnd(-40, 40); if (fbm(x * .08 + 9, z * .08) < .44) continue; pts.push([x, z]); }
-    const im = new THREE.InstancedMesh(bladeGeo(3, .07), mat, pts.length), d = new THREE.Object3D();
+    const im = new THREE.InstancedMesh(bladeGeo(6, .06), mat, pts.length), d = new THREE.Object3D();
     pts.forEach(([x, z], i) => { d.position.set(x, height(x, z) - .05, z); d.rotation.set(0, Math.random() * 6.28, 0); d.scale.set(rnd(1, 1.6), rnd(.35, 1.1), 1); d.updateMatrix(); im.setMatrixAt(i, d.matrix); im.setColorAt(i, kelpCol(i)); });
     im.frustumCulled = false; scene.add(im);
   }
@@ -406,7 +409,7 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   class Shell {
     constructor(parent, scale, hue) {
       this.root = new THREE.Group(); this.root.scale.setScalar(scale); parent.add(this.root);
-      this.domeMat = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(hue, .8, .62), roughness: .15, metalness: .55, emissive: new THREE.Color().setHSL(hue, .95, .42), emissiveIntensity: .75, envMapIntensity: 1.6 });
+      this.domeMat = new THREE.MeshPhysicalMaterial({ clearcoat: 1, clearcoatRoughness: .06, iridescence: .6, iridescenceIOR: 1.5, color: new THREE.Color().setHSL(hue, .8, .62), roughness: .15, metalness: .55, emissive: new THREE.Color().setHSL(hue, .95, .42), emissiveIntensity: .75, envMapIntensity: 1.6 });
       this.root.add(new THREE.Mesh(domeGeo, this.domeMat)); this.meshes = {}; this.n = 0;
       { const N = 220, pos = new Float32Array(N * 3); this.gl = { N, seed: [], col: new Float32Array(N * 3) };
         for (let i = 0; i < N; i++) { const th = Math.random() * 6.283, ph = Math.acos(Math.random()) * .98; pos.set([.67 * Math.sin(ph) * Math.cos(th), .56 * Math.cos(ph), .59 * Math.sin(ph) * Math.sin(th)], i * 3); this.gl.seed.push(Math.random() * 6.28); }
@@ -442,7 +445,7 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   }
   const crabs = [];
   function makeCrab(name, hue, isPlayer) {
-    const root = new THREE.Group(), mat = new THREE.MeshStandardMaterial({ color: 0x0b1850, roughness: .35, metalness: .3, emissive: new THREE.Color().setHSL(hue, .9, .18), emissiveIntensity: .5, envMapIntensity: 1 }), cmat = stripeMat(hue);
+    const root = new THREE.Group(), mat = new THREE.MeshPhysicalMaterial({ color: 0x0b1850, clearcoat: .8, clearcoatRoughness: .15, roughness: .35, metalness: .3, emissive: new THREE.Color().setHSL(hue, .9, .18), emissiveIntensity: .5, envMapIntensity: 1 }), cmat = stripeMat(hue);
     const body = new THREE.Mesh(new THREE.SphereGeometry(.5, 20, 12), mat); body.scale.set(1, .4, .75); body.position.y = .27; root.add(body);
     [-1, 1].forEach(s => { const stalk = new THREE.Mesh(new THREE.CylinderGeometry(.018, .02, .22, 6), mat); stalk.position.set(s * .17, .5, -.3); root.add(stalk);
       const eye = new THREE.Mesh(new THREE.SphereGeometry(.065, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .2, emissive: 0x333344 })); eye.position.set(s * .17, .64, -.3); root.add(eye);
@@ -486,11 +489,18 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, fog: false })); m.renderOrder = 999; camera.add(m); return { m, c, g: c.getContext('2d'), tex, key: '' }; }
   const hud = makePanel(.62, .1, 620, 100), msg = makePanel(1.0, .7, 800, 560);
   hud.m.position.set(0, .27, -1); msg.m.position.set(0, 0, -1.15); hud.m.visible = false; msg.m.visible = false;
+  const vignMat = new THREE.MeshBasicMaterial({ map: (() => { const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d'), gr = g.createRadialGradient(128, 128, 70, 128, 128, 128); gr.addColorStop(0, 'rgba(2,6,24,0)'); gr.addColorStop(1, 'rgba(2,6,24,.95)'); g.fillStyle = gr; g.fillRect(0, 0, 256, 256); return new THREE.CanvasTexture(c); })(), transparent: true, depthTest: false, depthWrite: false, fog: false, opacity: .25 });
+  const vign = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), vignMat); vign.position.set(0, 0, -.3); vign.renderOrder = 998; camera.add(vign);
   const FONT = '"Fredoka", system-ui, sans-serif';
   function fillText(g, t, x, y, size, color, glow) { g.font = '600 ' + size + 'px ' + FONT; g.textAlign = 'center'; g.shadowColor = glow || 'rgba(0,0,0,.6)'; g.shadowBlur = glow ? 18 : 6; g.fillStyle = color; g.fillText(t, x, y); }
   let flashMsg = '', flashT = 0;
   function drawHud() { const left = Math.max(0, Math.ceil(roundT)), rank = [...crabs].sort((a, b) => b.score - a.score).indexOf(player) + 1, key = left + '|' + player.score + '|' + rank + '|' + flashMsg; if (hud.key === key) return; hud.key = key;
-    const g = hud.g; g.clearRect(0, 0, 620, 100); fillText(g, Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') + '   ' + player.score + ' shiny   #' + rank, 310, 42, 38, '#ffffff', '#ff3fb4'); if (flashMsg) fillText(g, flashMsg, 310, 86, 28, '#ffe08a', '#ffcb3d'); hud.tex.needsUpdate = true; }
+    const g = hud.g, rr = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
+    g.clearRect(0, 0, 620, 100); rr(10, 6, 600, 64, 32); g.fillStyle = 'rgba(6,10,40,.66)'; g.fill(); g.strokeStyle = 'rgba(130,225,255,.5)'; g.lineWidth = 2; g.stroke();
+    rr(34, 58, 552, 6, 3); g.fillStyle = 'rgba(255,255,255,.14)'; g.fill(); rr(34, 58, Math.max(6, 552 * left / ROUND), 6, 3); const gr = g.createLinearGradient(34, 0, 586, 0); gr.addColorStop(0, '#29e8ff'); gr.addColorStop(1, '#ff3fb4'); g.fillStyle = gr; g.fill();
+    fillText(g, Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0'), 120, 36, 34, '#ffffff'); fillText(g, player.score + ' shiny', 310, 36, 34, '#ffe08a', '#ffcb3d'); fillText(g, '#' + rank, 505, 36, 34, rank === 1 ? '#ffe08a' : '#ffffff', rank === 1 ? '#ffcb3d' : null);
+    if (flashMsg) fillText(g, flashMsg, 310, 92, 26, '#ffe08a', '#ffcb3d'); hud.tex.needsUpdate = true; }
+  function drawBig(t) { const key = 'big' + t; if (msg.key === key) return; msg.key = key; const g = msg.g; g.clearRect(0, 0, 800, 560); fillText(g, t, 400, 330, 300, '#ffffff', '#29e8ff'); msg.tex.needsUpdate = true; }
   function drawMsg(title, lines, foot) { const key = title + lines.join('|') + foot; if (msg.key === key) return; msg.key = key; const g = msg.g; g.clearRect(0, 0, 800, 560);
     g.fillStyle = 'rgba(8,8,46,.82)'; g.beginPath(); g.roundRect ? g.roundRect(10, 10, 780, 540, 28) : g.rect(10, 10, 780, 540); g.fill(); g.strokeStyle = 'rgba(255,63,180,.7)'; g.lineWidth = 4; g.stroke();
     fillText(g, title, 400, 105, 76, '#ffcb3d', '#ff3fb4'); lines.forEach((l, i) => fillText(g, l, 400, 190 + i * 52, 36, i === 0 ? '#ffffff' : '#c7c2ff')); fillText(g, foot, 400, 515, 32, '#29e8ff', '#29e8ff'); msg.tex.needsUpdate = true; }
@@ -505,20 +515,29 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
       const ns = actx.createBufferSource(); ns.buffer = nb; ns.loop = true; const nf = actx.createBiquadFilter(); nf.type = 'lowpass'; nf.frequency.value = 380; const ng = actx.createGain(); ng.gain.value = .35; ns.connect(nf).connect(ng).connect(master); ns.start();
       [41, 55, 82.4].forEach((f, i) => { const o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine'; o.frequency.value = f; g.gain.value = .05 / (i + 1); o.connect(g).connect(master); o.start(); });
       const blip = () => { const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine'; const f = rnd(260, 520); o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 2, t + .12); g.gain.setValueAtTime(.05, t); g.gain.exponentialRampToValueAtTime(.0001, t + .25); o.connect(g).connect(bus); o.start(t); o.stop(t + .3); setTimeout(blip, rnd(1500, 5000)); };
-      setTimeout(blip, 2000);
+      const padChords = [[45, 52, 57, 60], [41, 48, 53, 57], [43, 50, 55, 59], [40, 47, 52, 55]]; let pc = 0;
+      const pad = () => { const t0 = actx.currentTime; padChords[pc++ % 4].forEach(n => [-6, 6].forEach(dt => { const o = actx.createOscillator(), g = actx.createGain(), f = actx.createBiquadFilter(); o.type = 'triangle'; o.frequency.value = midi(n); o.detune.value = dt; f.type = 'lowpass'; f.frequency.value = 700;
+        g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(.018, t0 + 3); g.gain.linearRampToValueAtTime(0, t0 + 10.5); o.connect(f).connect(g).connect(bus); o.start(t0); o.stop(t0 + 11); })); };
+      const bell = () => { const n = [69, 72, 74, 76, 81, 84][Math.floor(Math.random() * 6)], t0 = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine'; o.frequency.value = midi(n); g.gain.setValueAtTime(.045, t0); g.gain.exponentialRampToValueAtTime(.0001, t0 + 2.2); o.connect(g).connect(bus); o.start(t0); o.stop(t0 + 2.3); setTimeout(bell, rnd(2200, 5200)); };
+      pad(); setInterval(pad, 9000); setTimeout(bell, 3000); setTimeout(blip, 2000);
     } catch (_) {} }
   function tone(f, d, type = 'sine', gain = .12) { if (!actx) return; const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(); o.type = type; o.frequency.value = f; g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(.0001, t + d); o.connect(g).connect(bus); o.start(t); o.stop(t + d + .02); }
   const sfx = { grab: v => { const b = 76 + Math.min(v, 10) * 1.2; [0, 4, 7].forEach((s, i) => setTimeout(() => tone(midi(b + s), .45, 'triangle', .09), i * 70)); }, win: () => [0, 4, 7, 12, 16].forEach((s, i) => setTimeout(() => tone(midi(72 + s), .8, 'triangle', .1), i * 120)), start: () => [0, 7].forEach((s, i) => setTimeout(() => tone(midi(64 + s), .5, 'sine', .1), i * 110)) };
 
   // ================= game logic =================
-  let state = 'title', roundT = ROUND, inVR = false;
+  let state = 'title', roundT = ROUND, inVR = false, countT = 0, lastCount = 0;
   const flying = [];
+  const popups = [], popTex = {};
+  function popupTex(v) { if (popTex[v]) return popTex[v]; const c = document.createElement('canvas'); c.width = 128; c.height = 64; const g = c.getContext('2d'); g.font = '600 46px ' + FONT; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.shadowColor = v >= 10 ? '#ffcb3d' : '#29e8ff'; g.shadowBlur = 14; g.fillStyle = v >= 10 ? '#ffe08a' : '#ffffff'; g.fillText('+' + v, 64, 34); return popTex[v] = new THREE.CanvasTexture(c); }
+  function spawnPopup(pos, v) { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: popupTex(v), transparent: true, depthWrite: false, depthTest: false, fog: false })); sp.scale.set(.9, .45, 1); sp.position.copy(pos); sp.renderOrder = 900; scene.add(sp); popups.push({ sp, t: 0 }); }
+  function updatePopups(dt) { for (let i = popups.length - 1; i >= 0; i--) { const p = popups[i]; p.t += dt; p.sp.position.y += dt * .8; p.sp.material.opacity = Math.max(0, 1 - Math.max(0, p.t - .5) / .6); if (p.t > 1.1) { scene.remove(p.sp); p.sp.material.dispose(); popups.splice(i, 1); } } }
   function collect(it, crab) {
     it.alive = false; it.back = timeU.value + rnd(7, 14); const ty = TYPES[it.type], from = it.pos.clone().add(V3(0, ty.hover, 0));
     burst(from, ty.mat.color.getHex() || 0xffffff, crab.isPlayer ? 26 : 14); const p = crab.shell.place(it.type);
     { const fm = new THREE.Mesh(ty.geo, ty.mat); fm.position.copy(from); flying.push({ mesh: fm, from, crab, p, t: 0 }); } scene.add(flying[flying.length - 1].mesh);
     crab.score += ty.val; crab.count++;
-    if (crab.isPlayer) { sfx.grab(ty.val); haptic(.7, 70); crab.snap = .35; if ([10, 25, 50, 90].includes(crab.count)) { flashMsg = 'Shell tier up! ' + crab.count + ' treasures'; flashT = 2.8; sfx.win(); } }
+    if (crab.isPlayer) { spawnPopup(from.clone().add(V3(0, .45, 0)), ty.val); sfx.grab(ty.val); haptic(.7, 70); crab.snap = .35; if ([10, 25, 50, 90].includes(crab.count)) { flashMsg = 'Shell tier up! ' + crab.count + ' treasures'; flashT = 2.8; sfx.win(); } }
   }
   function updateFlying(dt) { const target = V3(0, 0, 0); for (let i = flying.length - 1; i >= 0; i--) { const f = flying[i]; f.t += dt / .55; f.crab.shell.root.getWorldPosition(target); target.y += .3;
       const k = Math.min(f.t, 1), e = k * k * (3 - 2 * k); f.mesh.position.lerpVectors(f.from, target, e); f.mesh.position.y += Math.sin(k * Math.PI) * 1.1; f.mesh.rotation.y += dt * 10; f.mesh.scale.setScalar(1 - .6 * e);
@@ -530,7 +549,7 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   canvas.addEventListener('pointerdown', e => { dragging = true; canvas.setPointerCapture(e.pointerId); onPress(); }); canvas.addEventListener('pointerup', () => { dragging = false; });
   canvas.addEventListener('pointermove', e => { if (!dragging || !deskOn) return; yaw -= e.movementX * .005; pitch = Math.max(-.5, Math.min(.6, pitch - e.movementY * .004)); });
   function onPress() { player.snap = .35; if (state === 'title' || state === 'over') startRound(); }
-  function startRound() { state = 'play'; roundT = ROUND; sfx.start(); crabs.forEach(c => { c.score = 0; }); player.pos.copy(SPAWN); vel.set(0, 0, 0); flashMsg = 'Grab the shiny things!'; flashT = 3; msg.m.visible = false; hud.m.visible = true; hud.key = ''; }
+  function startRound() { state = 'count'; countT = 3.99; lastCount = 4; roundT = ROUND; crabs.forEach(c => { c.score = 0; }); player.pos.copy(SPAWN); vel.set(0, 0, 0); flashMsg = ''; msg.m.visible = true; hud.m.visible = false; hud.key = ''; msg.key = ''; }
   function endRound() { state = 'over'; const rank = [...crabs].sort((a, b) => b.score - a.score); sfx.win(); hud.m.visible = false; msg.m.visible = true;
     drawMsg(rank[0] === player ? 'Shiniest crab!' : rank[0].name + ' wins', rank.map((c, i) => (i + 1) + '. ' + c.name + (c === player ? ' (you)' : '') + '  ' + c.score), inVR ? 'Squeeze a trigger to play again' : 'Click or press Space to play again'); }
   const fwdV = V3(0, 0, 0), sideV = V3(0, 0, 0);
@@ -566,9 +585,10 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   // ================= main loop =================
   const clock = new THREE.Clock(); let t = 0, lastLights = 0;
   function frame() {
-    const dt = Math.min(clock.getDelta(), .05); t += dt; timeU.value = t;
+    const dt = Math.min(clock.getDelta(), .05); t += dt; timeU.value = t; fadeA = Math.max(0, fadeA - dt * .7); fadeMat.opacity = fadeA; fadeMesh.visible = fadeA > .01;
     const playing = state === 'play'; let pSpeed = 0;
     if (inVR || deskOn) pSpeed = playerInput(dt);
+    { const vt = (inVR ? .18 : .3) + Math.min(1, pSpeed / 1.4) * (inVR ? .6 : .25); vignMat.opacity += (vt - vignMat.opacity) * Math.min(1, dt * 5); if (inVR) vign.scale.set(1.7, 1.7, 1); else vign.scale.set(.5 * camera.aspect, .5, 1); }
     player.root.visible = !inVR; player.root.position.copy(player.pos); if (!inVR) player.root.rotation.y = yaw; rig.position.copy(player.pos); playerLight.position.set(player.pos.x, player.pos.y + 1.4, player.pos.z); if (!inVR) { if (firstPerson) { camera.position.set(0, .6, -.08); camera.rotation.x = -.16 + pitch * .8; } else { camera.position.set(0, DESK_CAM.y, DESK_CAM.z); camera.rotation.x = -.34 + pitch * .6; } }
     NPC.forEach(c => { const s = npcThink(c, dt); animateCrab(c, s, dt); }); animateCrab(player, pSpeed, dt);
     if (playing) {
@@ -577,8 +597,9 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
       for (const it of items) { if (!it.alive) continue; const ty = TYPES[it.type], dy = Math.abs(it.pos.y + ty.hover - body.y);
         let hit = Math.hypot(it.pos.x - body.x, it.pos.z - body.z) < .85 && dy < 1.6; if (!hit) for (const tp of tips) if (tp.distanceTo(_b.set(it.pos.x, it.pos.y + ty.hover, it.pos.z)) < .7) { hit = true; break; } if (hit) collect(it, player); }
       if (flashT > 0) { flashT -= dt; if (flashT <= 0) flashMsg = ''; } drawHud();
+    } else if (state === 'count') { countT -= dt; const n = Math.ceil(countT); if (n !== lastCount) { lastCount = n; if (n > 0) tone(midi(72), .25, 'sine', .12); } if (countT <= 0) { state = 'play'; sfx.start(); flashMsg = 'GO! Grab the shiny things'; flashT = 2.5; msg.m.visible = false; hud.m.visible = true; hud.key = ''; } else drawBig(String(n));
     } else if (state === 'title') { msg.m.visible = true; drawMsg('Shiny Shell', ['Grab shiny treasure with your claws.', 'It sticks to your shell. Out-collect the other crabs!', inVR ? 'Left stick scuttle · Right stick turn' : 'WASD scuttle · drag to turn'], inVR ? 'Squeeze a trigger to start' : 'Click or press Space to start'); }
-    updateFlying(dt); updateItems(t); updateSparks(dt); updateSnow(t); updateBubbles(t); updateFish(t); updateWhale(t); updateBigBubbles(dt); updateGlitter(t);
+    updateFlying(dt); updatePopups(dt); updateItems(t); updateSparks(dt); updateSnow(t); updateBubbles(t); updateFish(t); updateWhale(t); updateBigBubbles(dt); updateGlitter(t);
     jellies.forEach(j => { const p = Math.sin(t * 1.1 + j.ph); j.g.position.set(j.cx + Math.sin(t * .1 + j.ph) * 4, j.cy + Math.sin(t * .2 + j.ph) * 1.6, j.cz + Math.cos(t * .09 + j.ph) * 4); j.bell.scale.set(1 + p * .08, 1 - p * .12, 1 + p * .08); });
     pl[0].position.x = -10 + Math.sin(t * .3) * 4; pl[1].position.z = -20 + Math.cos(t * .25) * 5; pl[2].intensity = 2.6 + Math.sin(t * 2.1) * .5;
     renderer.render(scene, camera);
@@ -586,7 +607,7 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 
   // ---------- entry ----------
   const vrBtn = $('vrBtn'), deskBtn = $('deskBtn'), status = $('status'), panel = $('panel'), hint = $('hint');
-  deskBtn.onclick = () => { startAudio(); deskOn = true; panel.hidden = true; hint.hidden = false; };
+  deskBtn.onclick = () => { startAudio(); fadeA = 1; deskOn = true; panel.hidden = true; hint.hidden = false; };
   (async () => {
     if (!navigator.xr) { status.textContent = 'This browser has no WebXR. Open the page in the Meta Quest Browser for VR.'; return; }
     try { if (!(await navigator.xr.isSessionSupported('immersive-vr'))) { status.textContent = 'VR is not available here. Open the page in the Meta Quest Browser.'; return; } }
@@ -594,7 +615,7 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
     status.textContent = 'VR ready.'; vrBtn.disabled = false;
     vrBtn.onclick = async () => { try {
       const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] });
-      startAudio(); inVR = true; deskOn = false; rig.scale.setScalar(.3); camera.position.set(0, 0, 0); camera.rotation.set(0, 0, 0); panel.hidden = true; hint.hidden = true; state = 'title'; msg.key = '';
+      startAudio(); fadeA = 1; inVR = true; deskOn = false; rig.scale.setScalar(.3); camera.position.set(0, 0, 0); camera.rotation.set(0, 0, 0); panel.hidden = true; hint.hidden = true; state = 'title'; msg.key = '';
       session.addEventListener('end', () => { inVR = false; rig.scale.setScalar(1); rig.rotation.set(0, 0, 0); panel.hidden = false; resize(); });
       await renderer.xr.setSession(session); } catch (e) { status.textContent = 'Could not start VR: ' + e.message; } };
   })();
