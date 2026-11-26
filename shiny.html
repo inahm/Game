@@ -436,7 +436,8 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   function makeClaw(mat) {   // built pointing toward -z, hinge at origin
     const g = new THREE.Group();
     { const palm = new THREE.Mesh(new THREE.SphereGeometry(.09, 12, 8), mat); palm.scale.set(1, .9, 1.2); g.add(palm); }
-    const mk = s => { const piv = new THREE.Group(); piv.position.z = -.05; const m = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), mat); m.scale.set(.07, .045, .22); m.position.set(0, s * .04, -.16); piv.add(m); g.add(piv); return piv; };
+    const mk = s => { const piv = new THREE.Group(); piv.position.z = -.05; const m = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), mat); m.scale.set(.06, .042, .22); m.position.set(0, s * .04, -.16); piv.add(m);
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(.04, .14, 10), mat); tip.rotation.x = -Math.PI / 2 - s * .6; tip.position.set(0, s * .05, -.38); piv.add(tip); g.add(piv); return piv; };
     const up = mk(1), lo = mk(-1); return { group: g, set: o => { up.rotation.x = o; lo.rotation.x = -o; } };
   }
   const crabs = [];
