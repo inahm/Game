@@ -1,0 +1,445 @@
+<title>Prism Rush</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: fullscreen WebGL canvas, one centered start panel over it that hides in VR. */
+:root {
+  --void: #07041a;
+  --ink: #eef0ff;
+  --muted: #9a98c8;
+  --cyan: #22e0ff;
+  --magenta: #ff3bd4;
+  --amber: #ffb02e;
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--void); color: var(--ink);
+  font-family: var(--font-body); overflow: hidden;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  box-sizing: border-box;
+}
+#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+#panel {
+  position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none;
+  padding-inline: max(16px, env(safe-area-inset-left, 0px));
+}
+#card {
+  pointer-events: auto; max-width: 30rem; width: 100%; box-sizing: border-box;
+  padding: 1.75rem; background: rgba(10, 6, 34, .72); backdrop-filter: blur(10px);
+  border: 1px solid rgba(160, 150, 255, .22); border-radius: 14px;
+}
+h1 {
+  font-family: var(--font-display); font-size: clamp(2.2rem, 8vw, 3.4rem);
+  line-height: 1; margin: 0 0 .6rem; letter-spacing: -.02em; text-wrap: balance;
+  background: linear-gradient(90deg, var(--cyan), var(--magenta)); -webkit-background-clip: text;
+  background-clip: text; color: transparent;
+}
+p { margin: .4rem 0; line-height: 1.5; color: var(--muted); font-size: .95rem; }
+.legend { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin: 1rem 0; font-size: .9rem; }
+.legend span { display: inline-flex; align-items: center; gap: .45rem; }
+.dot { width: .8rem; height: .8rem; border-radius: 50%; display: inline-block; }
+.row { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1.1rem; }
+button {
+  font: 600 1rem var(--font-display); color: #0a0620; border: 0; border-radius: 10px;
+  padding: .8rem 1.3rem; cursor: pointer; min-height: 44px;
+}
+#vrBtn { background: linear-gradient(90deg, var(--cyan), var(--magenta)); }
+#deskBtn { background: transparent; color: var(--ink); border: 1px solid rgba(160,150,255,.4); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+#status { font-size: .85rem; margin-top: .9rem; min-height: 1.2em; }
+#hint {
+  position: fixed; left: 0; right: 0; bottom: max(14px, env(safe-area-inset-bottom, 0px));
+  text-align: center; font-size: .85rem; color: var(--muted); pointer-events: none;
+}
+</style>
+
+<canvas id="gl"></canvas>
+
+<div id="panel">
+  <div id="card">
+    <h1>Prism Rush</h1>
+    <p>Orbs fly at you. Slice them with the blade of the matching colour. Miss three and the run ends.</p>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--cyan)"></i>Left hand</span>
+      <span><i class="dot" style="background:var(--magenta)"></i>Right hand</span>
+      <span><i class="dot" style="background:var(--amber)"></i>Either hand</span>
+    </div>
+    <div class="row">
+      <button id="vrBtn" disabled>Enter VR</button>
+      <button id="deskBtn">Play on screen</button>
+    </div>
+    <div id="status" role="status">Checking for VR support…</div>
+  </div>
+</div>
+<div id="hint" hidden>Move the mouse to swing. Click or press Space to swap blade colour.</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.152.2/three.min.js"></script>
+<script>
+(() => {
+  const C = { cyan: 0x22e0ff, magenta: 0xff3bd4, amber: 0xffb02e, white: 0xffffff };
+  const HAND_COLOR = [C.cyan, C.magenta, C.amber]; // 0 left, 1 right, 2 either
+  const $ = id => document.getElementById(id);
+
+  // ---------- renderer / scene ----------
+  const canvas = $('gl');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.xr.enabled = true;
+  renderer.xr.setFoveation(0.5);
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x0a0626, 0.022);
+  const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 300);
+  camera.position.set(0, 1.6, 0);
+  scene.add(camera);
+
+  function resize() {
+    if (renderer.xr.isPresenting) return;
+    renderer.setSize(innerWidth, innerHeight, false);
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+  }
+  addEventListener('resize', resize); resize();
+
+  // ---------- environment ----------
+  const sky = new THREE.Mesh(
+    new THREE.SphereGeometry(120, 32, 16),
+    new THREE.ShaderMaterial({
+      side: THREE.BackSide, depthWrite: false, fog: false,
+      vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+      fragmentShader: `varying vec3 vP;
+        void main(){
+          float h = vP.y;
+          vec3 hor = vec3(.36,.10,.46), top = vec3(.02,.01,.08), low = vec3(.03,.015,.10);
+          vec3 c = h > 0. ? mix(hor, top, pow(clamp(h,0.,1.), .55)) : mix(hor, low, clamp(-h*3.,0.,1.));
+          float sun = smoothstep(.30, .0, length(vec2(vP.x*.7, vP.y-.06))) * step(-.02, vP.z*-1.);
+          c += vec3(1.0,.35,.65) * sun * .55;
+          gl_FragColor = vec4(c,1.);
+        }`
+    })
+  );
+  scene.add(sky);
+
+  const starGeo = new THREE.BufferGeometry();
+  const sp = new Float32Array(1800 * 3);
+  for (let i = 0; i < 1800; i++) {
+    const u = Math.random() * 2 - 1, t = Math.random() * Math.PI * 2, r = Math.sqrt(1 - u * u);
+    const y = Math.abs(u) * .95 + .05;
+    sp.set([Math.cos(t) * r * 110, y * 110, Math.sin(t) * r * 110], i * 3);
+  }
+  starGeo.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+  scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xbfb6ff, size: .5, sizeAttenuation: true, fog: false, transparent: true, opacity: .8 })));
+
+  const floorMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false,
+    uniforms: { uScroll: { value: 0 }, uPulse: { value: 0 } },
+    vertexShader: 'varying vec3 wP; void main(){ vec4 w = modelMatrix*vec4(position,1.); wP = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }',
+    fragmentShader: `varying vec3 wP; uniform float uScroll, uPulse;
+      float grid(vec2 p, float w){ vec2 g = abs(fract(p-.5)-.5)/fwidth(p); return 1.-min(min(g.x,g.y)/w,1.); }
+      void main(){
+        vec2 p = vec2(wP.x, wP.z + uScroll);
+        float g = max(grid(p, 1.0), grid(p*.2, 1.6)*.9);
+        float d = length(wP.xz);
+        float fade = smoothstep(70., 6., d);
+        vec3 col = mix(vec3(.15,.55,1.), vec3(1.,.25,.8), smoothstep(-40.,0.,wP.z)) * (1.+uPulse*1.5);
+        gl_FragColor = vec4(col, g*fade*.85 + .02);
+      }`
+  });
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), floorMat);
+  floor.rotation.x = -Math.PI / 2; scene.add(floor);
+  const mirror = new THREE.Mesh(new THREE.PlaneGeometry(200, 200),
+    new THREE.MeshBasicMaterial({ color: 0x07041a, transparent: true, opacity: .92, depthWrite: false }));
+  mirror.rotation.x = -Math.PI / 2; mirror.position.y = -.01; scene.add(mirror);
+
+  const rings = [];
+  const ringGeo = new THREE.TorusGeometry(6, .05, 8, 64);
+  for (let i = 0; i < 9; i++) {
+    const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: i % 2 ? C.magenta : C.cyan, transparent: true, opacity: .55 }));
+    m.position.set(0, 2.2, -i * 9 - 4); rings.push(m); scene.add(m);
+  }
+
+  // ---------- orb / blade visuals ----------
+  const glowTex = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gr.addColorStop(0, 'rgba(255,255,255,.9)'); gr.addColorStop(.35, 'rgba(255,255,255,.25)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  })();
+  const orbGeo = new THREE.IcosahedronGeometry(1, 3);
+  const orbMats = {};
+  function orbMat(color) {
+    if (orbMats[color]) return orbMats[color];
+    return orbMats[color] = new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: new THREE.Color(color) }, uTime: { value: 0 } },
+      vertexShader: `varying vec3 vN, vV, vL; void main(){
+        vec4 mv = modelViewMatrix*vec4(position,1.); vN = normalize(normalMatrix*normal); vV = normalize(-mv.xyz); vL = position;
+        gl_Position = projectionMatrix*mv; }`,
+      fragmentShader: `varying vec3 vN, vV, vL; uniform vec3 uColor; uniform float uTime;
+        void main(){
+          float f = pow(1. - abs(dot(normalize(vN), normalize(vV))), 2.2);
+          float band = smoothstep(.55, .95, sin(vL.y*14. + uTime*3.));
+          vec3 c = uColor*.18 + uColor*f*1.7 + uColor*band*.35 + vec3(1.)*pow(f,5.)*.6;
+          gl_FragColor = vec4(c, 1.);
+        }`
+    });
+  }
+  const spriteMats = {};
+  function glowMat(color) {
+    return spriteMats[color] || (spriteMats[color] = new THREE.SpriteMaterial({ map: glowTex, color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
+  }
+
+  const orbs = [];
+  function makeOrb(hand, pos, vel, radius, kind) {
+    const color = kind === 'menu' ? C.white : HAND_COLOR[hand];
+    const g = new THREE.Group();
+    const core = new THREE.Mesh(orbGeo, orbMat(color)); core.scale.setScalar(radius); g.add(core);
+    const halo = new THREE.Sprite(glowMat(color)); halo.scale.setScalar(radius * 4.2); g.add(halo);
+    g.position.copy(pos); scene.add(g);
+    const o = { g, hand, vel, radius, kind, color, spin: Math.random() * 2 - 1 };
+    orbs.push(o); return o;
+  }
+  function removeOrb(o) { scene.remove(o.g); orbs.splice(orbs.indexOf(o), 1); }
+
+  // shards
+  const MAXS = 700;
+  const shardMesh = new THREE.InstancedMesh(new THREE.TetrahedronGeometry(1), new THREE.MeshBasicMaterial({ fog: false }), MAXS);
+  shardMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  shardMesh.frustumCulled = false; scene.add(shardMesh);
+  const shards = Array.from({ length: MAXS }, () => ({ life: 0, p: new THREE.Vector3(), v: new THREE.Vector3(), a: new THREE.Vector3(), s: 0, r: new THREE.Vector3() }));
+  let shardCursor = 0; const dummy = new THREE.Object3D(); const tmpC = new THREE.Color();
+  for (let i = 0; i < MAXS; i++) { dummy.scale.setScalar(0); dummy.updateMatrix(); shardMesh.setMatrixAt(i, dummy.matrix); shardMesh.setColorAt(i, tmpC.set(0xffffff)); }
+  function burst(pos, color, dir, n = 28) {
+    for (let i = 0; i < n; i++) {
+      const s = shards[shardCursor]; const idx = shardCursor; shardCursor = (shardCursor + 1) % MAXS;
+      s.life = 1; s.p.copy(pos);
+      s.v.set(Math.random() - .5, Math.random() - .3, Math.random() - .5).multiplyScalar(4).addScaledVector(dir, 2.5);
+      s.s = .02 + Math.random() * .05; s.r.set(Math.random() * 8, Math.random() * 8, Math.random() * 8);
+      shardMesh.setColorAt(idx, tmpC.set(color).multiplyScalar(1 + Math.random() * .8));
+    }
+    shardMesh.instanceColor.needsUpdate = true;
+  }
+  function updateShards(dt, t) {
+    for (let i = 0; i < MAXS; i++) {
+      const s = shards[i];
+      if (s.life > 0) {
+        s.life -= dt * 1.1; s.v.y -= 6 * dt; s.p.addScaledVector(s.v, dt);
+        if (s.p.y < 0) { s.p.y = 0; s.v.y *= -.35; }
+        dummy.position.copy(s.p); dummy.rotation.set(s.r.x * t, s.r.y * t, s.r.z * t);
+        dummy.scale.setScalar(Math.max(s.life, 0) * s.s * 2);
+      } else dummy.scale.setScalar(0);
+      dummy.updateMatrix(); shardMesh.setMatrixAt(i, dummy.matrix);
+    }
+    shardMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  // ---------- hands (VR controllers, or a mouse blade on desktop) ----------
+  const BLADE_LEN = .75;
+  function makeBlade(color) {
+    const g = new THREE.Group();
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(.008, .008, BLADE_LEN, 8), new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false }));
+    core.rotation.x = Math.PI / 2; core.position.z = -BLADE_LEN / 2;
+    const glow = new THREE.Mesh(new THREE.CylinderGeometry(.03, .03, BLADE_LEN, 12, 1, true), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .55, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    glow.rotation.x = Math.PI / 2; glow.position.z = -BLADE_LEN / 2;
+    const hilt = new THREE.Mesh(new THREE.CylinderGeometry(.018, .018, .12, 10), new THREE.MeshBasicMaterial({ color: 0x2a2450 }));
+    hilt.rotation.x = Math.PI / 2; hilt.position.z = .04;
+    g.add(core, glow, hilt); return g;
+  }
+  const hands = []; // {obj, hand, tip, prevTip, speed, source, blade}
+  function setupHand(i) {
+    const obj = renderer.xr.getController(i); scene.add(obj);
+    const h = { obj, hand: i, tip: new THREE.Vector3(), prevTip: new THREE.Vector3(), speed: 0, source: null, blade: null, base: new THREE.Vector3(), seeded: false };
+    obj.addEventListener('connected', e => {
+      h.source = e.data; h.hand = e.data.handedness === 'left' ? 0 : 1;
+      if (h.blade) obj.remove(h.blade);
+      h.blade = makeBlade(HAND_COLOR[h.hand]); obj.add(h.blade); h.seeded = false;
+    });
+    obj.addEventListener('disconnected', () => { if (h.blade) obj.remove(h.blade); h.blade = null; h.source = null; });
+    hands.push(h);
+  }
+  setupHand(0); setupHand(1);
+
+  // desktop blade
+  const desk = { obj: new THREE.Object3D(), hand: 1, tip: new THREE.Vector3(), prevTip: new THREE.Vector3(), speed: 0, blade: null, base: new THREE.Vector3(), seeded: false, on: false, mx: 0, my: 0 };
+  desk.blade = makeBlade(C.magenta); desk.obj.add(desk.blade); desk.obj.visible = false; scene.add(desk.obj);
+  function swapDeskHand() {
+    desk.hand = desk.hand === 1 ? 0 : 1;
+    desk.obj.remove(desk.blade); desk.blade = makeBlade(HAND_COLOR[desk.hand]); desk.obj.add(desk.blade);
+  }
+  addEventListener('pointermove', e => { desk.mx = (e.clientX / innerWidth) * 2 - 1; desk.my = -((e.clientY / innerHeight) * 2 - 1); });
+  addEventListener('pointerdown', e => { if (desk.on && e.target === canvas) swapDeskHand(); });
+  addEventListener('keydown', e => { if (desk.on && e.code === 'Space') { e.preventDefault(); swapDeskHand(); } });
+
+  const _a = new THREE.Vector3(), _b = new THREE.Vector3();
+  function trackHand(h, dt, minSpeedOn) {
+    h.obj.updateMatrixWorld(true);
+    h.base.setFromMatrixPosition(h.obj.matrixWorld);
+    h.tip.set(0, 0, -BLADE_LEN).applyMatrix4(h.obj.matrixWorld);
+    if (!h.seeded) { h.prevTip.copy(h.tip); h.seeded = true; }
+    h.speed = h.tip.distanceTo(h.prevTip) / Math.max(dt, 1e-3);
+    h.prevTip.copy(h.tip);
+  }
+  function segDist(p, a, b) {
+    _a.subVectors(b, a); _b.subVectors(p, a);
+    const t = Math.max(0, Math.min(1, _b.dot(_a) / _a.lengthSq()));
+    return _b.sub(_a.multiplyScalar(t)).length();
+  }
+  function haptic(h, strength, ms) {
+    try { const a = h.source && h.source.gamepad && h.source.gamepad.hapticActuators; if (a && a[0]) a[0].pulse(strength, ms); } catch (_) {}
+  }
+
+  // ---------- audio ----------
+  let actx = null;
+  function initAudio() { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); } catch (_) {} }
+  function tone(freq, dur, type = 'triangle', gain = .15, slideTo) {
+    if (!actx) return;
+    const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    o.connect(g).connect(actx.destination); o.start(t); o.stop(t + dur);
+  }
+  const sfx = {
+    hit: c => { const f = 440 * Math.pow(2, Math.min(c, 12) / 12 * 1.0); tone(f, .22, 'triangle', .16); tone(f * 2, .12, 'sine', .08); },
+    wrong: () => tone(140, .25, 'sawtooth', .12, 70),
+    miss: () => tone(220, .4, 'square', .08, 55),
+    start: () => { tone(330, .2); setTimeout(() => tone(495, .2), 90); setTimeout(() => tone(660, .35), 180); },
+    over: () => { tone(330, .5, 'sawtooth', .12, 82); }
+  };
+
+  // ---------- HUD ----------
+  const hudCanvas = document.createElement('canvas'); hudCanvas.width = 1024; hudCanvas.height = 512;
+  const hudTex = new THREE.CanvasTexture(hudCanvas);
+  const hud = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.2), new THREE.MeshBasicMaterial({ map: hudTex, transparent: true, depthWrite: false, fog: false }));
+  hud.position.set(0, 2.5, -4.2); scene.add(hud);
+  function drawHUD() {
+    const g = hudCanvas.getContext('2d'); g.clearRect(0, 0, 1024, 512);
+    g.textAlign = 'center'; g.fillStyle = '#eef0ff';
+    const font = (px, w = 700) => g.font = `${w} ${px}px "Space Grotesk", system-ui, sans-serif`;
+    if (state === 'ready') {
+      font(120); const gr = g.createLinearGradient(260, 0, 760, 0); gr.addColorStop(0, '#22e0ff'); gr.addColorStop(1, '#ff3bd4');
+      g.fillStyle = gr; g.fillText('PRISM RUSH', 512, 200);
+      g.fillStyle = '#b9b6ee'; font(44, 500); g.fillText('Slice the white orb to begin', 512, 290);
+      if (best > 0) { font(38, 500); g.fillText('Best ' + best, 512, 360); }
+    } else if (state === 'over') {
+      g.fillStyle = '#ff6a8a'; font(90); g.fillText('RUN OVER', 512, 170);
+      g.fillStyle = '#eef0ff'; font(150); g.fillText(String(score), 512, 320);
+      g.fillStyle = '#b9b6ee'; font(40, 500); g.fillText((score >= best && score > 0 ? 'New best' : 'Best ' + best) + '  ·  slice the orb to go again', 512, 400);
+    } else {
+      g.fillStyle = '#eef0ff'; font(170); g.fillText(String(score), 512, 210);
+      g.fillStyle = '#9a98c8'; font(44, 500); g.fillText(combo > 1 ? 'combo ×' + combo : ' ', 512, 290);
+      for (let i = 0; i < 3; i++) {
+        g.beginPath(); g.arc(432 + i * 80, 390, 22, 0, 7);
+        g.fillStyle = i < lives ? '#ffb02e' : 'rgba(255,255,255,.14)'; g.fill();
+      }
+    }
+    hudTex.needsUpdate = true;
+  }
+
+  // ---------- game ----------
+  let state = 'ready', score = 0, combo = 0, lives = 3, hits = 0, best = 0, spawnT = 0, speedBase = 5, pulse = 0, elapsed = 0;
+  try { best = +localStorage.getItem('prism-best') || 0; } catch (_) {}
+  const clearOrbs = () => { while (orbs.length) removeOrb(orbs[0]); };
+  function menuOrb() { makeOrb(2, new THREE.Vector3(0, 1.45, -1.15), new THREE.Vector3(), .2, 'menu'); }
+  function startRun() { clearOrbs(); state = 'play'; score = 0; combo = 0; lives = 3; hits = 0; spawnT = .6; speedBase = 5; sfx.start(); drawHUD(); }
+  function endRun() {
+    state = 'over'; sfx.over(); if (score > best) { best = score; try { localStorage.setItem('prism-best', String(best)); } catch (_) {} }
+    clearOrbs(); menuOrb(); drawHUD();
+  }
+  function spawn() {
+    const r = Math.random(), hand = r < .12 ? 2 : (r < .56 ? 0 : 1);
+    const tx = (Math.random() * 2 - 1) * 1.0 + (hand === 0 ? -.3 : hand === 1 ? .3 : 0);
+    const ty = 1.0 + Math.random() * .85;
+    const start = new THREE.Vector3(tx * 1.9, ty * 1.0 + .5 + Math.random() * .7, -26);
+    const target = new THREE.Vector3(tx, ty, -.8);
+    const vel = target.sub(start).normalize().multiplyScalar(speedBase + Math.min(hits * .08, 6));
+    makeOrb(hand, start, vel, .2, 'orb');
+  }
+  function onSlice(o, h) {
+    const dir = _a.copy(h.tip).sub(h.prevTip).normalize().clone();
+    const pos = o.g.position.clone();
+    if (o.kind === 'menu') { burst(pos, C.white, dir, 40); removeOrb(o); haptic(h, .8, 60); initAudio(); startRun(); return; }
+    if (o.hand !== 2 && o.hand !== h.hand) {
+      burst(pos, 0x777799, dir, 14); removeOrb(o); combo = 0; pulse = .3; haptic(h, 1, 160); sfx.wrong(); drawHUD(); return;
+    }
+    combo++; hits++; score += 10 * (1 + Math.floor(combo / 5));
+    burst(pos, o.color, dir, 30); removeOrb(o); pulse = 1; haptic(h, .6, 45); sfx.hit(combo); drawHUD();
+  }
+
+  const activeHands = () => renderer.xr.isPresenting ? hands.filter(h => h.blade) : (desk.on ? [desk] : []);
+  const clock = new THREE.Clock();
+  function frame() {
+    const dt = Math.min(clock.getDelta(), .05); elapsed += dt;
+    const xr = renderer.xr.isPresenting;
+    if (!xr && desk.on) {
+      desk.obj.position.set(desk.mx * 2.0, 1.55 + desk.my * 1.0, -.55);
+      desk.obj.rotation.set(0, 0, 0); desk.obj.updateMatrixWorld(true);
+    }
+    const hs = activeHands(); hs.forEach(h => trackHand(h, dt));
+
+    if (state === 'play') {
+      spawnT -= dt;
+      if (spawnT <= 0) { spawn(); spawnT = Math.max(.42, 1.15 - hits * .012) * (.8 + Math.random() * .4); }
+    }
+    for (let i = orbs.length - 1; i >= 0; i--) {
+      const o = orbs[i];
+      o.g.position.addScaledVector(o.vel, dt);
+      o.g.children[0].rotation.y += o.spin * dt * 2; o.g.children[0].rotation.x += dt;
+      if (o.kind === 'menu') o.g.position.y = 1.45 + Math.sin(elapsed * 2) * .05;
+      let sliced = false;
+      for (const h of hs) {
+        const need = xr ? .9 : .0;
+        if (h.speed < need && o.kind !== 'menu') continue;
+        if (h.speed < (xr ? .6 : 0)) continue;
+        if (segDist(o.g.position, h.base, h.tip) < o.radius + .04) { onSlice(o, h); sliced = true; break; }
+      }
+      if (sliced) continue;
+      if (o.kind === 'orb' && o.g.position.z > .35) {
+        removeOrb(o); combo = 0; lives--; pulse = .2; sfx.miss(); drawHUD();
+        if (lives <= 0) { endRun(); break; }
+      }
+    }
+    Object.values(orbMats).forEach(m => m.uniforms.uTime.value = elapsed);
+    const spd = state === 'play' ? speedBase + hits * .08 : 1.5;
+    floorMat.uniforms.uScroll.value = (elapsed * spd) % 1000;
+    pulse = Math.max(0, pulse - dt * 2.5); floorMat.uniforms.uPulse.value = pulse;
+    rings.forEach((r, i) => {
+      r.position.z += dt * spd; if (r.position.z > 6) r.position.z -= 81;
+      r.material.opacity = .25 + pulse * .5; r.scale.setScalar(1 + pulse * .04);
+    });
+    updateShards(dt, elapsed);
+    hud.lookAt(0, 2.4, 0);
+    renderer.render(scene, camera);
+  }
+
+  // ---------- entry points ----------
+  const vrBtn = $('vrBtn'), deskBtn = $('deskBtn'), status = $('status'), panel = $('panel'), hint = $('hint');
+  function begin() { initAudio(); drawHUD(); menuOrb(); }
+  let begun = false;
+  deskBtn.onclick = () => { if (!begun) { begin(); begun = true; } desk.on = true; desk.obj.visible = true; panel.hidden = true; hint.hidden = false; };
+
+  async function setupVR() {
+    if (!navigator.xr) { status.textContent = 'This browser has no WebXR. Open this page in the Meta Quest Browser to play in VR.'; return; }
+    try {
+      const ok = await navigator.xr.isSessionSupported('immersive-vr');
+      if (!ok) { status.textContent = 'VR is not available here. On a Quest, open this page in the Meta Quest Browser.'; return; }
+    } catch (e) { status.textContent = 'VR is blocked in this view. Open the page directly in the Meta Quest Browser.'; return; }
+    status.textContent = 'VR ready.'; vrBtn.disabled = false;
+    vrBtn.onclick = async () => {
+      try {
+        const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] });
+        initAudio(); if (!begun) { begin(); begun = true; }
+        desk.on = false; desk.obj.visible = false; panel.hidden = true; hint.hidden = true;
+        session.addEventListener('end', () => { panel.hidden = false; resize(); });
+        await renderer.xr.setSession(session);
+      } catch (e) { status.textContent = 'Could not start VR: ' + e.message; }
+    };
+  }
+  setupVR();
+  drawHUD();
+  renderer.setAnimationLoop(frame);
+})();
+</script>
