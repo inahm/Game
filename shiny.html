@@ -59,7 +59,7 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 const MODELS = {};   // CC BY 4.0 models by Polyfork, optimised and restyled at runtime (see CREDITS.md)
 { document.getElementById('status').textContent = 'Loading sea life…'; const loader = new GLTFLoader();
   await Promise.all(['reef-crab', 'shore-crab', 'jellyfish', 'octopus', 'sea-turtle', 'reef-fish', 'brain-coral', 'coral-pinnacle', 'lettuce-coral', 'table-coral', 'finger-coral', 'open-brain-coral', 'starfish']
-    .map(n => new Promise(res => loader.load('models/' + n + '.glb', g => { MODELS[n] = g; res(); }, undefined, () => res())))); }
+    .map(n => new Promise(res => loader.load('models/' + n + '.json', g => { MODELS[n] = g; res(); }, undefined, () => res())))); }
 (() => {
   const $ = id => document.getElementById(id);
   const FOG_HEX = 0x030828;
